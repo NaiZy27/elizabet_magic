@@ -1,0 +1,20 @@
+{# Ссылка на оплату не подошла. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Оплата — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+</head>
+<body>
+<div class="pay-page">
+  <div class="card" style="text-align:center">
+    <div class="eyebrow">Elizabet Magic</div>
+    <h1>Не получилось открыть оплату</h1>
+    <p class="muted">{{ message }}</p>
+    <p class="muted">Откройте заказ в боте — там всегда актуальная ссылка.</p>
+  </div>
+</div>
+</body>
+</html>

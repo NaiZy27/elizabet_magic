@@ -1,0 +1,149 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ product.name if product else 'Новый бокс' }}{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Каталог</div>
+    <h1>{{ product.name if product else 'Новый бокс' }}</h1>
+    <p>Цены — в рублях, вес и габариты нужны службе доставки для расчёта.</p>
+  </div>
+  <div class="actions"><a class="button ghost" href="/admin/catalog">К каталогу</a></div>
+</div>
+
+<section class="card">
+  <h2>Бокс</h2>
+  <form method="post" action="/admin/catalog/products" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="product_id" value="{{ product.id if product else 0 }}">
+
+    <div class="form-row">
+      <label for="name">Название</label>
+      <input id="name" name="name" value="{{ product.name if product else '' }}" required>
+    </div>
+    <div class="form-row">
+      <label for="sku">Артикул</label>
+      <input id="sku" name="sku" value="{{ product.sku if product else '' }}" required>
+      <span class="helptext">Латиницей, без пробелов. Клиенту не показывается.</span>
+    </div>
+
+    <div class="form-row" style="grid-column: 1 / -1">
+      <label for="description">Описание</label>
+      <textarea id="description" name="description">{{ product.description if product and product.description else '' }}</textarea>
+    </div>
+
+    <div class="form-row">
+      <label for="production_days">Срок изготовления, рабочих дней</label>
+      <input id="production_days" name="production_days" type="number" min="1" max="60"
+             value="{{ product.production_days if product else 1 }}">
+    </div>
+    <div class="form-row">
+      <label for="sort_order">Место в списке</label>
+      <input id="sort_order" name="sort_order" type="number" value="{{ product.sort_order if product else 0 }}">
+    </div>
+
+    <div class="form-row">
+      <label for="extra_spoon_price">Цена дополнительной ложечки, ₽</label>
+      <input id="extra_spoon_price" name="extra_spoon_price"
+             value="{{ product.extra_spoon_price_kopecks | rubles_input if product and product.extra_spoon_price_kopecks else '' }}">
+      <span class="helptext">Пусто — докупать ложечки нельзя.</span>
+    </div>
+    <div class="form-row">
+      <label for="max_spoon_count">Максимум ложечек</label>
+      <input id="max_spoon_count" name="max_spoon_count"
+             value="{{ product.max_spoon_count if product and product.max_spoon_count else '' }}">
+      <span class="helptext">Заполняется вместе с ценой дополнительной ложечки.</span>
+    </div>
+
+    <div class="form-row">
+      <label class="inline-check">
+        <input type="checkbox" name="is_active" value="true" {{ 'checked' if not product or product.is_active }}>
+        Показывать в боте
+      </label>
+      <button type="submit" style="margin-top:12px">Сохранить бокс</button>
+    </div>
+  </form>
+</section>
+
+{% if product %}
+  <section class="card">
+    <h2>Фото</h2>
+    {% if product.photo_file_id %}
+      <p class="muted">Фото загружено. Клиент видит его при выборе бокса.</p>
+    {% else %}
+      <p class="muted">Фото ещё нет.</p>
+    {% endif %}
+    <form method="post" action="/admin/catalog/products/{{ product.id }}/photo" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-row">
+        <label for="photo">Загрузить картинку</label>
+        <input id="photo" name="photo" type="file" accept="image/*" required>
+        <span class="helptext">Файл уходит в служебный чат бота — оттуда его и показываем клиентам.</span>
+      </div>
+      <button class="secondary" type="submit">Загрузить фото</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Варианты</h2>
+    {% for variant in all_variants %}
+      <form method="post" action="/admin/catalog/products/{{ product.id }}/variants" class="form-grid"
+            style="margin-bottom:18px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="variant_id" value="{{ variant.id }}">
+        <div class="form-row"><label>Название</label><input name="name" value="{{ variant.name }}" required></div>
+        <div class="form-row"><label>Артикул</label><input name="sku" value="{{ variant.sku }}" required></div>
+        <div class="form-row"><label>Ложечек</label>
+          <input name="spoon_count" type="number" min="1" max="100" value="{{ variant.spoon_count }}"></div>
+        <div class="form-row"><label>Цена, ₽</label>
+          <input name="price" value="{{ variant.price_kopecks | rubles_input }}" required></div>
+        <div class="form-row"><label>Вес с упаковкой, г</label>
+          <input name="weight_g" value="{{ variant.weight_g or '' }}"></div>
+        <div class="form-row"><label>Габариты, см (Д × Ш × В)</label>
+          <div style="display:flex; gap:8px">
+            <input name="length_cm" value="{{ variant.length_cm or '' }}" placeholder="Д">
+            <input name="width_cm" value="{{ variant.width_cm or '' }}" placeholder="Ш">
+            <input name="height_cm" value="{{ variant.height_cm or '' }}" placeholder="В">
+          </div>
+          {% if not variant.has_parcel_dimensions %}
+            <span class="helptext">Без веса и габаритов доставка посчитается по резервной цене.</span>
+          {% endif %}
+        </div>
+        <div class="form-row"><label>Место в списке</label>
+          <input name="sort_order" type="number" value="{{ variant.sort_order }}"></div>
+        <div class="form-row">
+          <label class="inline-check">
+            <input type="checkbox" name="is_active" value="true" {{ 'checked' if variant.is_active }}>
+            Доступен для заказа
+          </label>
+          <button class="secondary" type="submit" style="margin-top:10px">Сохранить вариант</button>
+        </div>
+      </form>
+    {% else %}
+      <p class="muted">Вариантов пока нет — без них бокс не появится в боте.</p>
+    {% endfor %}
+
+    <h3>Добавить вариант</h3>
+    <form method="post" action="/admin/catalog/products/{{ product.id }}/variants" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-row"><label>Название</label><input name="name" placeholder="3 ложечки" required></div>
+      <div class="form-row"><label>Артикул</label><input name="sku" required></div>
+      <div class="form-row"><label>Ложечек</label><input name="spoon_count" type="number" min="1" value="1"></div>
+      <div class="form-row"><label>Цена, ₽</label><input name="price" required></div>
+      <div class="form-row"><label>Вес с упаковкой, г</label><input name="weight_g"></div>
+      <div class="form-row"><label>Габариты, см</label>
+        <div style="display:flex; gap:8px">
+          <input name="length_cm" placeholder="Д">
+          <input name="width_cm" placeholder="Ш">
+          <input name="height_cm" placeholder="В">
+        </div>
+      </div>
+      <div class="form-row"><label>Место в списке</label><input name="sort_order" type="number" value="0"></div>
+      <div class="form-row">
+        <label class="inline-check"><input type="checkbox" name="is_active" value="true" checked> Доступен для заказа</label>
+        <button type="submit" style="margin-top:10px">Добавить вариант</button>
+      </div>
+    </form>
+  </section>
+{% endif %}
+{% endblock %}

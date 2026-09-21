@@ -1,0 +1,62 @@
+# Боевая конфигурация. Наружу опубликован только web на 127.0.0.1:8000 —
+# снаружи к нему ходит nginx с хоста (см. deploy/nginx/).
+
+x-app: &app
+  build: .
+  restart: unless-stopped
+  env_file: .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-em}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env}
+      POSTGRES_DB: ${POSTGRES_DB:-elizabet_magic}
+      TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-em} -d ${POSTGRES_DB:-elizabet_magic}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    <<: *app
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  bot:
+    <<: *app
+    command: ["python", "-m", "bot.main"]
+
+  worker:
+    <<: *app
+    command: ["taskiq", "worker", "worker.broker:broker", "worker.tasks"]
+
+  scheduler:
+    <<: *app
+    command: ["taskiq", "scheduler", "worker.broker:scheduler"]
+
+volumes:
+  pgdata:
+  redisdata:

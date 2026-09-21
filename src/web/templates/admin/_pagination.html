@@ -1,0 +1,12 @@
+{# Постраничная навигация. Параметры текущего фильтра сохраняются. #}
+{% if pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+      <a class="button ghost" href="?{{ request.url.include_query_params(page=page-1).query }}">← Назад</a>
+    {% endif %}
+    <span class="muted">Страница {{ page }} из {{ pages }} · всего {{ total }}</span>
+    {% if page < pages %}
+      <a class="button ghost" href="?{{ request.url.include_query_params(page=page+1).query }}">Вперёд →</a>
+    {% endif %}
+  </div>
+{% endif %}

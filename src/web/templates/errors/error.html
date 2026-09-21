@@ -1,0 +1,21 @@
+{# Страница ошибки: по-русски и с дорогой назад. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }} — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+</head>
+<body>
+<div class="login-page">
+  <div class="card login-card" style="text-align:center">
+    <div class="eyebrow">Ошибка {{ code }}</div>
+    <h1 style="font-family: Georgia, serif; margin-top:0">{{ title }}</h1>
+    <p class="muted">{{ message }}</p>
+    <a class="button" href="/admin/board">На доску заказов</a>
+  </div>
+</div>
+</body>
+</html>

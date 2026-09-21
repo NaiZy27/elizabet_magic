@@ -1,0 +1,203 @@
+{% extends "admin/base.html" %}
+{% block title %}Заказ {{ order.display_number }}{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Заказ</div>
+    <h1>{{ order.display_number }}</h1>
+    <p>Оформлен {{ order.created_at | ru_datetime }} ·
+      <span class="badge {{ order.status.value }}">{{ order.status.value | order_status }}</span>
+      {% if is_late %}<span class="badge cancelled">⚠️ Не успеваем к обещанной дате</span>{% endif %}
+    </p>
+  </div>
+  <div class="actions"><a class="button ghost" href="/admin/board">На доску</a></div>
+</div>
+
+<div class="split">
+  <div class="stack">
+    <section class="card">
+      <h2>Что заказали</h2>
+      <table>
+        <tbody>
+          {% for item in order.items %}
+            <tr>
+              <td>{{ item.name_snapshot }}</td>
+              <td>{{ item.spoon_count }} шт. в боксе</td>
+              <td>× {{ item.quantity }}</td>
+              <td>{{ item.unit_price_kopecks | rubles }}</td>
+            </tr>
+          {% endfor %}
+          {% for addon in order.addons %}
+            <tr>
+              <td>{{ addon.name_snapshot }}</td>
+              <td class="muted">доп. услуга</td>
+              <td>× {{ addon.quantity }}</td>
+              <td>{{ addon.unit_price_kopecks | rubles }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% set has_video = order.addons | selectattr('code_snapshot', 'equalto', 'video') | list %}
+      <p class="video-flag {{ 'yes' if has_video else 'no' }}">
+        {{ '🎥 Видео: ДА' if has_video else 'Видео: НЕТ' }}
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Стоимость</h2>
+      <div class="kv"><span class="muted">Боксы и услуги</span><strong>{{ order.subtotal_kopecks | rubles }}</strong></div>
+      <div class="kv"><span class="muted">Доставка</span><strong>{{ order.delivery_kopecks | rubles }}</strong></div>
+      <div class="kv"><span class="muted">Итого</span><strong>{{ order.total_kopecks | rubles }}</strong></div>
+      <div class="kv"><span class="muted">Оплата</span>
+        <span>
+          {% if order.paid_at %}
+            <span class="badge paid">Оплачен</span> {{ order.paid_at | ru_datetime }}
+          {% else %}
+            <span class="badge waiting_payment">Не оплачен</span>
+            {% if order.expires_at %}<span class="muted">до {{ order.expires_at | ru_datetime }}</span>{% endif %}
+          {% endif %}
+        </span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Пожелания клиента</h2>
+      <div class="kv"><span class="muted">Любимые цвета</span>
+        <span>{{ (order.favorite_colors or {}).get('custom') or '—' }}</span>
+      </div>
+      <div class="kv"><span class="muted">Нежелательные</span>
+        <span>{{ (order.avoid_colors or {}).get('custom') or '—' }}</span>
+      </div>
+      <div class="kv"><span class="muted">Комментарий</span>
+        <span>{{ order.customer_comment or '—' }}</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Куда доставить</h2>
+      {% set point = order.pickup_snapshot or {} %}
+      <div class="kv"><span class="muted">Служба</span><span>{{ point.get('provider_name') or '—' }}</span></div>
+      <div class="kv"><span class="muted">Город</span><span>{{ point.get('city') or '—' }}</span></div>
+      <div class="kv"><span class="muted">Пункт выдачи</span><span>{{ point.get('name') or '—' }}<br>{{ point.get('address') or '' }}</span></div>
+      <div class="kv"><span class="muted">Режим работы</span><span>{{ point.get('working_hours') or '—' }}</span></div>
+      <div class="kv"><span class="muted">Получатель</span><span>{{ order.recipient_name }}, {{ order.recipient_phone }}</span></div>
+      {% for shipment in shipments %}
+        <div class="kv"><span class="muted">Отправление</span>
+          <span>
+            <span class="badge">{{ shipment.status.value | shipment_status }}</span>
+            {% if shipment.track_number %}<code>{{ shipment.track_number }}</code>{% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </section>
+
+    <section class="card">
+      <h2>Платежи</h2>
+      {% if payments %}
+        <table>
+          <thead><tr><th>Счёт</th><th>Способ</th><th>Сумма</th><th>Состояние</th><th>Создан</th></tr></thead>
+          <tbody>
+            {% for payment in payments %}
+              <tr>
+                <td>№{{ payment.id }}</td>
+                <td>{{ payment.provider.value | payment_provider }}</td>
+                <td>{{ payment.amount_kopecks | rubles }}</td>
+                <td><span class="badge {{ payment.status.value }}">{{ payment.status.value | payment_status }}</span></td>
+                <td>{{ payment.created_at | ru_datetime }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">Попыток оплаты ещё не было.</div>
+      {% endif %}
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="card">
+      <h2>Управление заказом</h2>
+
+      <form method="post" action="/admin/orders/{{ order.id }}/status" class="form-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="status">Этап</label>
+        <select id="status" name="status">
+          {% for item in statuses %}
+            <option value="{{ item.value }}" {{ 'selected' if order.status == item }}>{{ item.value | order_status }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" style="margin-top:10px">Сменить этап</button>
+      </form>
+
+      <form method="post" action="/admin/orders/{{ order.id }}/production-days" class="form-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="production_days">Срок изготовления, рабочих дней</label>
+        <input id="production_days" name="production_days" type="number" min="1" max="60" value="{{ order.production_days }}">
+        <span class="helptext">Расчётная дата готовности:
+          {{ ready_date | ru_date if ready_date else 'не считается на этом этапе' }}</span>
+        <button class="secondary" type="submit" style="margin-top:10px">Сохранить срок</button>
+      </form>
+
+      <form method="post" action="/admin/orders/{{ order.id }}/promised-date" class="form-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="promised_date">Обещали клиенту</label>
+        <input id="promised_date" name="promised_date" type="date"
+               value="{{ order.promised_ready_date.isoformat() if order.promised_ready_date else '' }}">
+        <span class="helptext">Эта дата не пересчитывается сама — её назвали клиенту.</span>
+        <button class="secondary" type="submit" style="margin-top:10px">Сохранить дату</button>
+      </form>
+
+      <form method="post" action="/admin/orders/{{ order.id }}/note" class="form-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="note">Заметка для сборки</label>
+        <textarea id="note" name="note" placeholder="Видна только в панели">{{ order.admin_note or '' }}</textarea>
+        <button class="secondary" type="submit" style="margin-top:10px">Сохранить заметку</button>
+      </form>
+
+      {% if order.status.value not in ('cancelled', 'completed') %}
+        <form method="post" action="/admin/orders/{{ order.id }}/cancel" class="form-row">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="reason">Отменить заказ</label>
+          <input id="reason" name="reason" placeholder="Причина (запишется в историю)">
+          <button class="danger" type="submit" style="margin-top:10px">Отменить заказ</button>
+        </form>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Клиент</h2>
+      <div class="kv"><span class="muted">Имя</span><span>{{ order.customer.display_name }}</span></div>
+      {% if order.customer.username %}
+        <div class="kv"><span class="muted">Telegram</span>
+          <a href="https://t.me/{{ order.customer.username }}" rel="noreferrer">@{{ order.customer.username }}</a></div>
+      {% endif %}
+      <div class="kv"><span class="muted">Телефон</span><span>{{ order.customer.phone or '—' }}</span></div>
+      <div class="kv"><span class="muted">Email</span><span>{{ order.recipient_email or order.customer.email or '—' }}</span></div>
+      <div class="kv"><span class="muted">Прошлых заказов</span><span>{{ previous_orders }}</span></div>
+      {% if order.customer.bot_blocked_at %}
+        <p class="danger-note">Клиент заблокировал бота — уведомления не доходят.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>История заказа</h2>
+      <ul class="history" style="padding-left:0">
+        {% for event in events %}
+          <li>
+            <time>{{ event.created_at | ru_datetime }} · {{ event.actor }}</time>
+            {{ event.event_type.value | order_event }}
+            {% if event.event_type.value == 'status_changed' %}
+              <span class="muted">
+                {{ event.payload.get('from', '') | order_status }} → {{ event.payload.get('to', '') | order_status }}
+              </span>
+            {% endif %}
+          </li>
+        {% else %}
+          <li class="muted">Событий пока нет.</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+</div>
+{% endblock %}

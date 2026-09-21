@@ -1,0 +1,19 @@
+# Разработка идёт на Windows, а работает всё на Ubuntu в контейнерах.
+# В репозитории храним LF: скрипт с CRLF на сервере просто не запустится.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff2 binary

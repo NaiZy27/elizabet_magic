@@ -1,0 +1,50 @@
+{% extends "admin/base.html" %}
+{% block title %}Доставка{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Доставка</div>
+    <h1>Службы доставки</h1>
+    <p>Включайте ту службу, с которой заключён договор. Резервная цена используется,
+      когда её расчёт недоступен.</p>
+  </div>
+</div>
+
+{% for provider in providers %}
+  <section class="card">
+    <h2>{{ provider.name }}</h2>
+    <div class="kv"><span class="muted">Пунктов выдачи в справочнике</span>
+      <strong>{{ point_counts.get(provider.code, 0) }}</strong></div>
+    <div class="kv"><span class="muted">Справочник обновлялся</span>
+      <span>{{ provider.pickup_points_synced_at | ru_datetime }}</span></div>
+    {% if provider.last_sync_error %}
+      <p class="danger-note">Последняя синхронизация не удалась: {{ provider.last_sync_error }}</p>
+    {% endif %}
+
+    <form method="post" action="/admin/delivery/{{ provider.id }}" class="form-grid" style="margin-top:14px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-row">
+        <label>Резервная цена доставки, ₽</label>
+        <input name="fallback_price" value="{{ provider.fallback_price_kopecks | rubles_input }}" required>
+        <span class="helptext">По ней считаем, если расчёт службы недоступен.</span>
+      </div>
+      <div class="form-row">
+        <label class="inline-check">
+          <input type="checkbox" name="is_enabled" value="true" {{ 'checked' if provider.is_enabled }}>
+          Предлагать клиентам
+        </label>
+        <button type="submit" style="margin-top:12px">Сохранить</button>
+      </div>
+    </form>
+  </section>
+{% else %}
+  <div class="card"><div class="empty">Службы не заведены. Запустите наполнение базы стартовыми данными.</div></div>
+{% endfor %}
+
+<section class="card">
+  <p class="muted">Сейчас пункты выдачи берутся из контура
+    <strong>{{ 'тестового' if environment.value == 'test' else 'боевого' }}</strong>.
+    Переключается переменной окружения <code>DELIVERY_ENVIRONMENT</code>.</p>
+</section>
+{% endblock %}

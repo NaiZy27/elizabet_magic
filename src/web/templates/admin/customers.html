@@ -1,0 +1,50 @@
+{% extends "admin/base.html" %}
+{% block title %}Клиенты{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">База клиентов</div>
+    <h1>Клиенты</h1>
+    <p>Число заказов и сумма покупок считаются по оплаченным заказам.</p>
+  </div>
+</div>
+
+<form class="filters" method="get">
+  <input name="q" value="{{ q }}" placeholder="Имя, @ник, телефон или id в Telegram">
+  <button type="submit">Найти</button>
+</form>
+
+<div class="card">
+  {% if rows %}
+    <table>
+      <thead>
+        <tr><th>Клиент</th><th>Telegram</th><th>Телефон</th><th>Заказов</th><th>Куплено на</th><th>Последний заказ</th></tr>
+      </thead>
+      <tbody>
+        {% for customer, orders_count, total_kopecks, last_order_at in rows %}
+          <tr>
+            <td>
+              {{ customer.display_name }}
+              {% if customer.bot_blocked_at %}<br><span class="badge cancelled">Заблокировал бота</span>{% endif %}
+            </td>
+            <td>
+              {% if customer.username %}
+                <a href="https://t.me/{{ customer.username }}" rel="noreferrer">@{{ customer.username }}</a>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td>{{ customer.phone or '—' }}</td>
+            <td>{{ orders_count }}</td>
+            <td>{{ total_kopecks | rubles }}</td>
+            <td>{{ last_order_at | ru_datetime }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">Клиентов не найдено.</div>
+  {% endif %}
+</div>
+
+{% include "admin/_pagination.html" %}
+{% endblock %}

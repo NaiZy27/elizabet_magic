@@ -1,0 +1,75 @@
+{% extends "admin/base.html" %}
+{% block title %}Статистика{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Аналитика</div>
+    <h1>Статистика</h1>
+    <p>За период с {{ stats.since | ru_date }} по {{ stats.until | ru_date }}.
+      Считаются только оплаченные заказы.</p>
+  </div>
+</div>
+
+<form class="filters" method="get">
+  {% for value, label in periods.items() %}
+    <button class="{{ '' if period == value else 'secondary' }}" name="period" value="{{ value }}" type="submit">{{ label }}</button>
+  {% endfor %}
+  <input type="date" name="since" value="{{ stats.since.isoformat() }}">
+  <input type="date" name="until" value="{{ stats.until.isoformat() }}">
+</form>
+
+<section class="grid">
+  <div class="card metric"><span class="muted">Оплаченных заказов</span><strong>{{ stats.paid_orders }}</strong><small>за период</small></div>
+  <div class="card metric"><span class="muted">Выручка</span><strong>{{ stats.revenue_kopecks | rubles }}</strong><small>вместе с доставкой</small></div>
+  <div class="card metric"><span class="muted">Без доставки</span><strong>{{ stats.revenue_without_delivery_kopecks | rubles }}</strong><small>чистая выручка за боксы</small></div>
+  <div class="card metric"><span class="muted">Средний чек</span><strong>{{ stats.average_check_kopecks | rubles }}</strong><small>на один заказ</small></div>
+  <div class="card metric"><span class="muted">Отмен</span><strong>{{ stats.cancelled_orders }}</strong><small>включая неоплаченные</small></div>
+</section>
+
+<div class="split">
+  <section class="card">
+    <h2>Популярные боксы</h2>
+    {% if stats.top_products %}
+      <table>
+        <thead><tr><th>Бокс</th><th>Штук</th><th>Выручка</th></tr></thead>
+        <tbody>
+          {% for product in stats.top_products %}
+            <tr>
+              <td>{{ product.name }}</td>
+              <td>{{ product.quantity }}</td>
+              <td>{{ product.revenue_kopecks | rubles }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty">За этот период заказов не было.</div>
+    {% endif %}
+  </section>
+
+  <div class="stack">
+    <section class="card">
+      <h2>Видео сборки</h2>
+      <div class="kv"><span class="muted">Заказов с видео</span><strong>{{ stats.orders_with_video }}</strong></div>
+      <div class="kv"><span class="muted">Доля</span><strong>{{ stats.video_share }}%</strong></div>
+    </section>
+
+    <section class="card">
+      <h2>Клиенты</h2>
+      <div class="kv"><span class="muted">Покупали за период</span><strong>{{ stats.unique_customers }}</strong></div>
+      <div class="kv"><span class="muted">Возвращаются</span><strong>{{ stats.repeat_customers }}</strong></div>
+      <p class="helptext muted">Возвращаются — те, у кого за всё время больше одного оплаченного заказа.</p>
+    </section>
+
+    <section class="card">
+      <h2>Службы доставки</h2>
+      {% for code, count in stats.by_delivery_provider.items() %}
+        <div class="kv"><span class="muted">{{ provider_labels.get(code, code) }}</span><strong>{{ count }}</strong></div>
+      {% else %}
+        <p class="muted">Данных пока нет.</p>
+      {% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}

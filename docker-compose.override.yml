@@ -1,0 +1,32 @@
+# Локальная разработка. Подхватывается автоматически рядом с docker-compose.yml.
+# Базы открыты на localhost — чтобы ходить в них DataGrip'ом и redis-cli.
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  web:
+    build:
+      context: .
+    command: ["uvicorn", "web.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
+              "--reload", "--reload-dir", "/app/src"]
+    volumes:
+      - ./src:/app/src:ro
+      - ./migrations:/app/migrations:ro
+
+  bot:
+    volumes:
+      - ./src:/app/src:ro
+
+  worker:
+    volumes:
+      - ./src:/app/src:ro
+
+  scheduler:
+    volumes:
+      - ./src:/app/src:ro

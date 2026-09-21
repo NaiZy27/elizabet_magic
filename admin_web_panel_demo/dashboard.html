@@ -1,0 +1,8 @@
+{% extends "control/base.html" %}
+{% block title %}Заказы{% endblock %}
+{% block content %}
+<div class="topline">
+  <div><h1>CRM заказов</h1><p>Рабочая канбан-доска открывается в разделе «Заказы».</p></div>
+  <a class="button" href="{% url 'control:orders' %}">Открыть доску</a>
+</div>
+{% endblock %}

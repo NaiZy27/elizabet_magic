@@ -1,0 +1,57 @@
+{# Страница оплаты заказа. Её открывает клиент по ссылке из бота. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Оплата заказа {{ order.display_number }} — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+</head>
+<body>
+<div class="pay-page">
+  <div class="card">
+    <div class="eyebrow">Elizabet Magic</div>
+    <h1>Заказ {{ order.display_number }}</h1>
+
+    <table>
+      <tbody>
+        {% for item in order.items %}
+          <tr>
+            <td>{{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}</td>
+            <td style="text-align:right">{{ (item.unit_price_kopecks * item.quantity) | rubles }}</td>
+          </tr>
+        {% endfor %}
+        {% for addon in order.addons %}
+          <tr>
+            <td>{{ addon.name_snapshot }}{% if addon.quantity > 1 %} × {{ addon.quantity }}{% endif %}</td>
+            <td style="text-align:right">{{ (addon.unit_price_kopecks * addon.quantity) | rubles }}</td>
+          </tr>
+        {% endfor %}
+        <tr>
+          <td>Доставка</td>
+          <td style="text-align:right">{{ order.delivery_kopecks | rubles }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="pay-total">К оплате: {{ order.total_kopecks | rubles }}</p>
+
+    {% if is_stub %}
+      <p class="pay-note">
+        Приём платежей ещё не подключён. Эта кнопка отмечает заказ оплаченным
+        и нужна только для проверки работы мастерской.
+      </p>
+      <form method="post" action="/pay/{{ payment.public_token }}/confirm">
+        <button type="submit">Отметить оплаченным (проверка)</button>
+      </form>
+    {% else %}
+      <p class="pay-note">Платёжная система пока не настроена. Напишите нам в боте — поможем с оплатой.</p>
+    {% endif %}
+
+    {% if bot_url %}
+      <p style="margin-top:18px"><a href="{{ bot_url }}">← Вернуться в бот</a></p>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

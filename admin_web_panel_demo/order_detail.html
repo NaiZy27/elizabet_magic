@@ -1,0 +1,105 @@
+{% extends "control/base.html" %}
+{% load control_extras %}
+{% block title %}{{ order.number }}{% endblock %}
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Карточка заказа</div>
+    <h1>{{ order.number }}</h1>
+    <p>Заказ оформлен {{ order.created_at|date:"d.m.Y в H:i" }}</p>
+  </div>
+  <a class="button secondary" href="{% url 'control:dashboard' %}">← К доске</a>
+</div>
+
+<div class="split">
+  <div class="stack">
+    <section class="card">
+      <div class="topline"><div><h2>Что заказали</h2></div><span class="badge {{ order.status }}">{{ order.get_status_display }}</span></div>
+      {% for item in order.items.all %}
+        <div class="kv">
+          <span>{{ item.product_variant.product.name }}</span>
+          <strong>{{ item.quantity }} × {{ item.unit_price_kopecks|rubles }} ₽</strong>
+        </div>
+      {% endfor %}
+      {% for item in order.addons.all %}
+        <div class="kv"><span>{{ item.addon.name }}</span><strong>{{ item.total_price_kopecks|rubles }} ₽</strong></div>
+      {% empty %}
+        <div class="kv"><span>Дополнительные услуги</span><span class="muted">Не выбраны</span></div>
+      {% endfor %}
+    </section>
+
+    <section class="card">
+      <h2>Стоимость</h2>
+      <div class="kv"><span>Товары и услуги</span><strong>{{ order.subtotal_kopecks|rubles }} ₽</strong></div>
+      <div class="kv">
+        <span>Доставка</span>
+        <span><strong>{{ order.delivery_kopecks|rubles }} ₽</strong><br><small class="muted">Фиксированный тариф до выбранного ПВЗ</small></span>
+      </div>
+      <div class="kv"><strong>Итого</strong><strong>{{ order.total_kopecks|rubles }} ₽</strong></div>
+    </section>
+
+    <section class="card">
+      <h2>Пожелания к боксу</h2>
+      <div class="kv"><span>Любимые цвета</span><span>{{ favorite_colors }}</span></div>
+      <div class="kv"><span>Не использовать</span><span>{{ avoid_colors }}</span></div>
+      <div class="kv"><span>Комментарий</span><span>{{ order.customer_comment|default:"—" }}</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Куда доставить</h2>
+      {% if order.selected_pickup_point %}
+        <div class="kv"><span>Служба</span><span>{{ order.selected_pickup_point.provider.name }}</span></div>
+        <div class="kv"><span>Город</span><span>{{ order.selected_pickup_point.city|default:"—" }}</span></div>
+        <div class="kv"><span>Адрес ПВЗ</span><strong>{{ order.selected_pickup_point.address }}</strong></div>
+        <div class="kv"><span>Режим работы</span><span>{{ order.selected_pickup_point.working_hours|default:"—" }}</span></div>
+      {% else %}
+        <p class="muted">Пункт выдачи не выбран.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <aside class="stack">
+    <section class="card">
+      <h2>Текущий этап</h2>
+      <p class="muted">Этап можно изменить здесь или перетащить карточку на доске.</p>
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+          <label for="status">Этап заказа</label>
+          <select id="status" name="status">
+            {% for value,label in statuses %}<option value="{{ value }}" {% if order.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-row" style="margin-top:14px">
+          <label for="phone">Телефон клиента</label>
+          <input id="phone" name="phone" value="{{ order.customer.phone|default:'' }}" placeholder="+7 999 000-00-00">
+        </div>
+        <button style="margin-top:16px">Сохранить</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Клиент</h2>
+      <div class="kv"><span>Имя</span><strong>{{ order.customer.display_name }}</strong></div>
+      <div class="kv"><span>Telegram</span><span>{% if order.customer.telegram_username %}@{{ order.customer.telegram_username }}{% else %}—{% endif %}</span></div>
+      <div class="kv"><span>Telegram ID</span><span>{{ order.customer.telegram_user_id }}</span></div>
+      <div class="kv"><span>Телефон</span><span>{{ order.customer.phone|default:"—" }}</span></div>
+    </section>
+
+    <section class="card">
+      <h2>История заказа</h2>
+      {% for event in order.events.all %}
+        <div class="kv">
+          <span>{{ event.created_at|date:"d.m.Y H:i" }}</span>
+          <span>
+            <strong>{{ event.event_type|event_label }}</strong>
+            {% if event.event_type == "ORDER_STAGE_CHANGED" %}<br><small class="muted">{{ event.payload.from|order_status_label }} → {{ event.payload.to|order_status_label }}</small>{% endif %}
+          </span>
+        </div>
+      {% empty %}
+        <p class="muted">Событий пока нет.</p>
+      {% endfor %}
+    </section>
+  </aside>
+</div>
+{% endblock %}

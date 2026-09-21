@@ -1,0 +1,29 @@
+{# Возврат после оплаты. Статус оплаты эта страница не меняет — только показывает. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Оплата принята — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+</head>
+<body>
+<div class="pay-page">
+  <div class="card" style="text-align:center">
+    <div class="eyebrow">Elizabet Magic</div>
+    {% if paid %}
+      <h1>Оплата получена 💗</h1>
+      <p class="muted">Заказ {{ order.display_number }} принят в работу. Подробности пришлём в бот.</p>
+    {% else %}
+      <h1>Ждём подтверждения</h1>
+      <p class="muted">Как только оплата подтвердится, сообщим об этом в боте — обычно это занимает
+        меньше минуты.</p>
+    {% endif %}
+
+    {% if bot_url %}
+      <p style="margin-top:20px"><a class="button" href="{{ bot_url }}">Вернуться в бот</a></p>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

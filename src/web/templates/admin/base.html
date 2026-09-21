@@ -1,0 +1,37 @@
+{# Каркас панели: сайдбар с разделами и рабочая область. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}Панель{% endblock %} — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+</head>
+<body>
+{% set path = request.url.path %}
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">Elizabet Magic<small>Панель мастерской</small></div>
+    <nav class="nav">
+      <a class="{{ 'active' if path.startswith('/admin/board') or path.startswith('/admin/orders') }}" href="/admin/board"><span class="icon">▦</span> Заказы</a>
+      <a class="{{ 'active' if path.startswith('/admin/catalog') }}" href="/admin/catalog"><span class="icon">◇</span> Каталог</a>
+      <a class="{{ 'active' if path.startswith('/admin/delivery') }}" href="/admin/delivery"><span class="icon">→</span> Доставка</a>
+      <a class="{{ 'active' if path.startswith('/admin/pickup-points') }}" href="/admin/pickup-points"><span class="icon">⌖</span> Пункты выдачи</a>
+      <a class="{{ 'active' if path.startswith('/admin/customers') }}" href="/admin/customers"><span class="icon">○</span> Клиенты</a>
+      <a class="{{ 'active' if path.startswith('/admin/payments') }}" href="/admin/payments"><span class="icon">₽</span> Платежи</a>
+      <a class="{{ 'active' if path.startswith('/admin/stats') }}" href="/admin/stats"><span class="icon">▤</span> Статистика</a>
+      <a class="{{ 'active' if path.startswith('/admin/settings') }}" href="/admin/settings"><span class="icon">⚙</span> Настройки</a>
+    </nav>
+    <form class="logout" method="post" action="/admin/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="secondary" type="submit">Выйти</button>
+    </form>
+  </aside>
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

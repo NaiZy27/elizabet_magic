@@ -1,0 +1,142 @@
+{% extends "control/base.html" %}
+{% load control_extras %}
+{% block title %}Заказы{% endblock %}
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Рабочая доска</div>
+    <h1>Заказы</h1>
+    <p>Перетаскивайте карточки между этапами. В каждой колонке старые заказы находятся сверху.</p>
+  </div>
+  <div class="board-help">Изменения сохраняются автоматически</div>
+</div>
+
+<section class="grid">
+  <div class="card metric"><span class="muted">Новые</span><strong>{{ new_order_count }}</strong><small>ждут начала сборки</small></div>
+  <div class="card metric"><span class="muted">Сейчас в работе</span><strong>{{ active_order_count }}</strong><small>на всех активных этапах</small></div>
+  <div class="card metric"><span class="muted">Получены</span><strong>{{ completed_order_count }}</strong><small>завершённые заказы</small></div>
+  <div class="card metric"><span class="muted">Сумма заказов</span><strong>{{ board_total }} ₽</strong><small>всего карточек: {{ paid_order_count }}</small></div>
+</section>
+
+<form id="csrf-form" hidden>{% csrf_token %}</form>
+<div class="board-shell">
+  <section class="kanban-board" aria-label="Этапы заказов">
+    {% for column in columns %}
+      <div class="kanban-column" data-status="{{ column.value }}">
+        <div class="column-head">
+          <div class="column-title"><span class="column-dot"></span>{{ column.label }}</div>
+          <span class="column-count">{{ column.count }}</span>
+        </div>
+        <div class="column-cards">
+          {% for order in column.orders %}
+            <article
+              class="order-card"
+              draggable="true"
+              data-order-id="{{ order.id }}"
+              data-created="{{ order.created_at|date:'c' }}"
+              data-update-url="{% url 'control:order_stage' order.id %}"
+            >
+              <a href="{% url 'control:order_detail' order.id %}" aria-label="Открыть заказ {{ order.number }}">
+                <div class="order-number"><span>{{ order.number }}</span><span class="order-date">{{ order.created_at|date:"d.m · H:i" }}</span></div>
+                <h3 class="customer-name">{{ order.customer.display_name }}</h3>
+                <p class="order-product">
+                  {% for item in order.items.all %}{{ item.product_variant.product.name }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}{% if not forloop.last %}<br>{% endif %}{% empty %}Состав не указан{% endfor %}
+                </p>
+                <div class="order-meta">
+                  <span class="order-price">{{ order.total_kopecks|rubles }} ₽</span>
+                  <span class="order-city">{% if order.selected_pickup_point %}{{ order.selected_pickup_point.city|default:order.selected_pickup_point.provider.name }}{% else %}Адрес не выбран{% endif %}</span>
+                </div>
+              </a>
+            </article>
+          {% empty %}
+            <div class="drop-empty">Перетащите заказ сюда</div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </section>
+</div>
+<div class="board-saving" id="board-toast">Этап заказа обновлён</div>
+
+<script>
+(() => {
+  const csrf = document.querySelector('#csrf-form input[name="csrfmiddlewaretoken"]').value;
+  const columns = [...document.querySelectorAll('.kanban-column')];
+  const toast = document.getElementById('board-toast');
+  let dragged = null;
+  let source = null;
+
+  function refreshColumn(column) {
+    const cardsBox = column.querySelector('.column-cards');
+    const cards = [...cardsBox.querySelectorAll('.order-card')];
+    cards.sort((a, b) => a.dataset.created.localeCompare(b.dataset.created));
+    cards.forEach(card => cardsBox.appendChild(card));
+    const empty = cardsBox.querySelector('.drop-empty');
+    if (cards.length && empty) empty.remove();
+    if (!cards.length && !empty) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'drop-empty';
+      placeholder.textContent = 'Перетащите заказ сюда';
+      cardsBox.appendChild(placeholder);
+    }
+    column.querySelector('.column-count').textContent = cards.length;
+  }
+
+  function showToast(message, isError = false) {
+    toast.textContent = message;
+    toast.style.background = isError ? '#8f2f41' : '#2c1822';
+    toast.classList.add('show');
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  document.querySelectorAll('.order-card').forEach(card => {
+    card.addEventListener('dragstart', () => {
+      dragged = card;
+      source = card.closest('.kanban-column');
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      columns.forEach(column => column.classList.remove('drag-over'));
+    });
+  });
+
+  columns.forEach(column => {
+    column.addEventListener('dragover', event => {
+      event.preventDefault();
+      column.classList.add('drag-over');
+    });
+    column.addEventListener('dragleave', event => {
+      if (!column.contains(event.relatedTarget)) column.classList.remove('drag-over');
+    });
+    column.addEventListener('drop', async event => {
+      event.preventDefault();
+      column.classList.remove('drag-over');
+      if (!dragged || !source || column === source) return;
+      const targetBox = column.querySelector('.column-cards');
+      targetBox.appendChild(dragged);
+      refreshColumn(source);
+      refreshColumn(column);
+      const body = new FormData();
+      body.append('status', column.dataset.status);
+      try {
+        const response = await fetch(dragged.dataset.updateUrl, {
+          method: 'POST',
+          headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+          body
+        });
+        if (!response.ok) throw new Error('save failed');
+        showToast('Этап заказа обновлён');
+        source = column;
+      } catch (error) {
+        source.querySelector('.column-cards').appendChild(dragged);
+        refreshColumn(source);
+        refreshColumn(column);
+        showToast('Не удалось сохранить. Карточка возвращена.', true);
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

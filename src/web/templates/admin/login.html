@@ -1,0 +1,35 @@
+{# Вход в панель. Ссылок на неё нигде нет, поэтому страница максимально простая. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Вход — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+</head>
+<body>
+<div class="login-page">
+  <div class="card login-card">
+    <div class="eyebrow">Elizabet Magic</div>
+    <h1 style="font-family: Georgia, serif; margin-top: 0;">Вход в панель</h1>
+
+    {% if error %}<div class="errors">{{ error }}</div>{% endif %}
+
+    <form method="post" action="/admin/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="form-row">
+        <label for="username">Логин</label>
+        <input id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="form-row">
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">Войти</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

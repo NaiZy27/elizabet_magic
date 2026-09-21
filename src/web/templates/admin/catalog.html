@@ -1,0 +1,152 @@
+{% extends "admin/base.html" %}
+{% block title %}Каталог{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Каталог</div>
+    <h1>Боксы и услуги</h1>
+    <p>Цены вводятся в рублях. Клиенты видят только те боксы, у которых есть хотя бы один
+      доступный вариант.</p>
+  </div>
+  <div class="actions"><a class="button" href="/admin/catalog/products/new">Добавить бокс</a></div>
+</div>
+
+<section class="card">
+  <h2>Боксы</h2>
+  {% if products %}
+    <table>
+      <thead>
+        <tr><th>Название</th><th>Артикул</th><th>Варианты</th><th>Срок</th><th>Доп. ложечки</th><th>В боте</th></tr>
+      </thead>
+      <tbody>
+        {% for product in products %}
+          {% set active_variants = product.variants | selectattr('is_active') | list %}
+          <tr>
+            <td>
+              <a href="/admin/catalog/products/{{ product.id }}">{{ product.name }}</a>
+              {% if product.is_active and not active_variants %}
+                <br><span class="badge warn">Клиенты его не увидят: нет доступных вариантов</span>
+              {% endif %}
+            </td>
+            <td><code>{{ product.sku }}</code></td>
+            <td>
+              {% for variant in product.variants %}
+                {{ variant.name }} — {{ variant.price_kopecks | rubles }}{% if not variant.is_active %} <span class="muted">(выключен)</span>{% endif %}<br>
+              {% else %}<span class="muted">не заведены</span>{% endfor %}
+            </td>
+            <td>{{ product.production_days }} дн.</td>
+            <td>
+              {% if product.extra_spoon_price_kopecks %}
+                {{ product.extra_spoon_price_kopecks | rubles }} · до {{ product.max_spoon_count }}
+              {% else %}<span class="muted">нельзя</span>{% endif %}
+            </td>
+            <td>{{ product.is_active | yes_no }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">Боксов пока нет. Добавьте первый.</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Дополнительные услуги</h2>
+  {% for addon in addons %}
+    <form method="post" action="/admin/catalog/addons" class="form-grid" style="margin-bottom:18px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="addon_id" value="{{ addon.id }}">
+      <div class="form-row">
+        <label>Название</label>
+        <input name="name" value="{{ addon.name }}" required>
+      </div>
+      <div class="form-row">
+        <label>Код</label>
+        <input name="code" value="{{ addon.code }}" required>
+        <span class="helptext">Код <code>video</code> ставит на карточке флаг «Снять видео».</span>
+      </div>
+      <div class="form-row">
+        <label>Цена, ₽</label>
+        <input name="price" value="{{ addon.price_kopecks | rubles_input }}" required>
+      </div>
+      <div class="form-row">
+        <label>Как считается</label>
+        <select name="charge_mode">
+          {% for mode in charge_modes %}
+            <option value="{{ mode.value }}" {{ 'selected' if addon.charge_mode == mode }}>
+              {{ 'За каждый бокс' if mode.value == 'per_box' else 'Один раз на заказ' }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Добавляет дней к сборке</label>
+        <input name="extra_production_days" type="number" min="0" max="30" value="{{ addon.extra_production_days }}">
+      </div>
+      <div class="form-row">
+        <label>Место в списке</label>
+        <input name="sort_order" type="number" value="{{ addon.sort_order }}">
+        <label class="inline-check" style="margin-top:10px">
+          <input type="checkbox" name="is_active" value="true" {{ 'checked' if addon.is_active }}> Показывать в боте
+        </label>
+        <button class="secondary" type="submit" style="margin-top:10px">Сохранить</button>
+      </div>
+    </form>
+  {% endfor %}
+
+  <form method="post" action="/admin/catalog/addons" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row"><label>Новая услуга</label><input name="name" required></div>
+    <div class="form-row"><label>Код</label><input name="code" required></div>
+    <div class="form-row"><label>Цена, ₽</label><input name="price" placeholder="300" required></div>
+    <div class="form-row">
+      <label>Как считается</label>
+      <select name="charge_mode">
+        <option value="per_box">За каждый бокс</option>
+        <option value="per_order">Один раз на заказ</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Добавляет дней</label>
+      <input name="extra_production_days" type="number" min="0" max="30" value="0">
+    </div>
+    <div class="form-row">
+      <label class="inline-check"><input type="checkbox" name="is_active" value="true" checked> Показывать в боте</label>
+      <button type="submit" style="margin-top:10px">Добавить услугу</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Цвета</h2>
+  <div class="form-grid">
+    {% for color in colors %}
+      <form method="post" action="/admin/catalog/colors">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="color_id" value="{{ color.id }}">
+        <div class="form-row">
+          <label>Название</label>
+          <input name="name" value="{{ color.name }}" required>
+        </div>
+        <div class="form-row">
+          <label>Место в списке</label>
+          <input name="sort_order" type="number" value="{{ color.sort_order }}">
+        </div>
+        <label class="inline-check">
+          <input type="checkbox" name="is_active" value="true" {{ 'checked' if color.is_active }}> Показывать
+        </label>
+        <button class="secondary" type="submit" style="margin-top:10px">Сохранить</button>
+      </form>
+    {% endfor %}
+
+    <form method="post" action="/admin/catalog/colors">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-row"><label>Новый цвет</label><input name="name" required></div>
+      <div class="form-row"><label>Место в списке</label><input name="sort_order" type="number" value="0"></div>
+      <label class="inline-check"><input type="checkbox" name="is_active" value="true" checked> Показывать</label>
+      <button type="submit" style="margin-top:10px">Добавить цвет</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

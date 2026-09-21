@@ -1,0 +1,54 @@
+{% extends "admin/base.html" %}
+{% block title %}Платежи{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Оплаты</div>
+    <h1>Платежи</h1>
+    <p>Каждая строка — одна попытка оплаты. У заказа может быть несколько попыток,
+      но успешная — только одна.</p>
+  </div>
+</div>
+
+<form class="filters" method="get">
+  <select name="status">
+    <option value="">Любое состояние</option>
+    {% for value in ['pending', 'paid', 'failed', 'cancelled', 'refunded'] %}
+      <option value="{{ value }}" {{ 'selected' if selected_status == value }}>{{ value | payment_status }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Показать</button>
+</form>
+
+<div class="card">
+  {% if payments %}
+    <table>
+      <thead>
+        <tr><th>Счёт</th><th>Заказ</th><th>Клиент</th><th>Способ</th><th>Сумма</th><th>Состояние</th><th>Создан</th><th>Оплачен</th></tr>
+      </thead>
+      <tbody>
+        {% for payment in payments %}
+          <tr>
+            <td>№{{ payment.id }}</td>
+            <td><a href="/admin/orders/{{ payment.order_id }}">{{ payment.order.display_number }}</a></td>
+            <td>{{ payment.order.recipient_name or payment.order.customer.display_name }}</td>
+            <td>
+              {{ payment.provider.value | payment_provider }}
+              {% if payment.environment.value == 'test' %}<br><span class="badge">тестовый контур</span>{% endif %}
+            </td>
+            <td>{{ payment.amount_kopecks | rubles }}</td>
+            <td><span class="badge {{ payment.status.value }}">{{ payment.status.value | payment_status }}</span></td>
+            <td>{{ payment.created_at | ru_datetime }}</td>
+            <td>{{ payment.paid_at | ru_datetime }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">Платежей пока нет.</div>
+  {% endif %}
+</div>
+
+{% include "admin/_pagination.html" %}
+{% endblock %}

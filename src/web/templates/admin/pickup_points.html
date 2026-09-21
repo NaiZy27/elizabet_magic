@@ -1,0 +1,54 @@
+{% extends "admin/base.html" %}
+{% block title %}Пункты выдачи{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Справочник</div>
+    <h1>Пункты выдачи</h1>
+    <p>Обновляется автоматически. Пропавшие из ответа службы точки выключаются, но не удаляются —
+      на них ссылаются оформленные заказы.</p>
+  </div>
+</div>
+
+<form class="filters" method="get">
+  <input name="q" value="{{ q }}" placeholder="Город, адрес или код">
+  <select name="provider">
+    <option value="">Все службы</option>
+    {% for code in providers %}
+      <option value="{{ code.value }}" {{ 'selected' if provider == code.value }}>{{ code.value | delivery_provider }}</option>
+    {% endfor %}
+  </select>
+  <label class="inline-check">
+    <input type="checkbox" name="only_active" value="true" {{ 'checked' if only_active }}> только работающие
+  </label>
+  <button type="submit">Найти</button>
+</form>
+
+<div class="card">
+  {% if points %}
+    <table>
+      <thead>
+        <tr><th>Город</th><th>Адрес</th><th>Служба</th><th>Режим работы</th><th>Код</th><th>Контур</th><th>Работает</th></tr>
+      </thead>
+      <tbody>
+        {% for point in points %}
+          <tr>
+            <td>{{ point.city }}</td>
+            <td>{{ point.name }}<br><span class="muted">{{ point.address }}</span></td>
+            <td>{{ point.provider.value | delivery_provider }}</td>
+            <td>{{ point.working_hours or '—' }}</td>
+            <td><code>{{ point.external_id }}</code></td>
+            <td>{{ 'тестовый' if point.environment.value == 'test' else 'боевой' }}</td>
+            <td>{{ point.is_active | yes_no }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">Пунктов не найдено.</div>
+  {% endif %}
+</div>
+
+{% include "admin/_pagination.html" %}
+{% endblock %}

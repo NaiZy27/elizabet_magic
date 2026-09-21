@@ -1,0 +1,142 @@
+{% extends "admin/base.html" %}
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Настройки</div>
+    <h1>Тексты и правила</h1>
+    <p>Здесь меняются сообщения клиентам, рабочие дни и контакты — без участия программиста.</p>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Рабочие дни</h2>
+  <p class="muted">От них зависят все расчётные даты готовности на доске.</p>
+  <form method="post" action="/admin/settings/calendar">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row">
+      <label>Собираем заказы</label>
+      <div style="display:flex; flex-wrap:wrap; gap:14px">
+        {% for index, name in weekday_names %}
+          <label class="inline-check">
+            <input type="checkbox" name="weekdays" value="{{ index }}" {{ 'checked' if index in calendar.weekdays }}>
+            {{ name }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="holidays">Выходные даты</label>
+      <textarea id="holidays" name="holidays"
+                placeholder="2026-01-07&#10;2026-03-08">{{ calendar.holidays | map('string') | join('\n') }}</textarea>
+      <span class="helptext">По одной дате в строке, в формате 2026-01-07. Отпуск тоже сюда.</span>
+    </div>
+    <button type="submit">Сохранить календарь</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Правила заказов</h2>
+  <form method="post" action="/admin/settings/rules" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row">
+      <label for="unpaid_ttl_minutes">Сколько ждать оплату, минут</label>
+      <input id="unpaid_ttl_minutes" name="unpaid_ttl_minutes" type="number" min="5" max="10080"
+             value="{{ rules.unpaid_ttl_minutes }}">
+      <span class="helptext">После этого неоплаченный заказ отменяется автоматически.</span>
+    </div>
+    <div class="form-row">
+      <label for="draft_ttl_days">Хранить незаконченные оформления, дней</label>
+      <input id="draft_ttl_days" name="draft_ttl_days" type="number" min="1" max="365"
+             value="{{ rules.draft_ttl_days }}">
+      <button type="submit" style="margin-top:12px">Сохранить правила</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Сообщения клиентам</h2>
+  <p class="muted">Доступные вставки:
+    {% for name, description in placeholders.items() %}
+      <code>{{ '{{ ' ~ name ~ ' }}' }}</code>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  {% for template in templates %}
+    <form method="post" action="/admin/settings/templates/{{ template.key }}" style="margin-bottom:22px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-row">
+        <label for="text-{{ template.key }}">{{ template.title }}</label>
+        <span class="helptext" style="margin-bottom:6px">{{ template.when }}</span>
+        <textarea id="text-{{ template.key }}" name="text">{{ template.text }}</textarea>
+      </div>
+      <label class="inline-check">
+        <input type="checkbox" name="is_enabled" value="true" {{ 'checked' if template.is_enabled }}>
+        Отправлять это сообщение
+      </label>
+      <button class="secondary" type="submit" style="margin-top:10px">Сохранить</button>
+    </form>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <h2>Тексты бота</h2>
+  <form method="post" action="/admin/settings/bot-texts">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row">
+      <label for="greeting">Приветствие</label>
+      <textarea id="greeting" name="greeting">{{ bot_texts.greeting }}</textarea>
+    </div>
+    <div class="form-row">
+      <label for="wishes_disclaimer">Предупреждение о заменах</label>
+      <textarea id="wishes_disclaimer" name="wishes_disclaimer">{{ bot_texts.wishes_disclaimer }}</textarea>
+      <span class="helptext">Показывается на шаге с пожеланиями.</span>
+    </div>
+    <div class="form-row">
+      <label for="consent_text">Согласие на обработку данных</label>
+      <textarea id="consent_text" name="consent_text">{{ bot_texts.consent_text }}</textarea>
+    </div>
+    <div class="form-row">
+      <label for="consent_url">Ссылка на политику обработки данных</label>
+      <input id="consent_url" name="consent_url" value="{{ bot_texts.consent_url or '' }}">
+    </div>
+    <button type="submit">Сохранить тексты</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Контакты</h2>
+  <form method="post" action="/admin/settings/contacts" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row"><label>Telegram</label><input name="telegram" value="{{ contacts.telegram or '' }}"></div>
+    <div class="form-row"><label>Телефон</label><input name="phone" value="{{ contacts.phone or '' }}"></div>
+    <div class="form-row"><label>Почта</label><input name="email" value="{{ contacts.email or '' }}"></div>
+    <div class="form-row"><label>Instagram</label><input name="instagram" value="{{ contacts.instagram or '' }}"></div>
+    <div class="form-row"><label>TikTok</label><input name="tiktok" value="{{ contacts.tiktok or '' }}"></div>
+    <div class="form-row"><button type="submit" style="margin-top:26px">Сохранить контакты</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Частые вопросы</h2>
+  <form method="post" action="/admin/settings/faq">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% for item in faq.items %}
+      <div class="form-row">
+        <label>Вопрос</label>
+        <input name="questions" value="{{ item.question }}">
+        <label style="margin-top:8px">Ответ</label>
+        <textarea name="answers">{{ item.answer }}</textarea>
+      </div>
+    {% endfor %}
+    <div class="form-row">
+      <label>Новый вопрос</label>
+      <input name="questions" placeholder="Например: сколько собирается бокс?">
+      <label style="margin-top:8px">Ответ</label>
+      <textarea name="answers"></textarea>
+    </div>
+    <span class="helptext">Пустые пары вопрос-ответ не сохраняются — так удаляются лишние.</span>
+    <button type="submit" style="margin-top:12px">Сохранить вопросы</button>
+  </form>
+</section>
+{% endblock %}

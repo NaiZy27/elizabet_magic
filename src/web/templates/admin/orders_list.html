@@ -1,0 +1,70 @@
+{% extends "admin/base.html" %}
+{% block title %}Список заказов{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Все заказы</div>
+    <h1>Список заказов</h1>
+    <p>Здесь видно всё, включая неоплаченные и отменённые.</p>
+  </div>
+  <div class="actions"><a class="button ghost" href="/admin/board">На доску</a></div>
+</div>
+
+<form class="filters" method="get">
+  <input name="q" value="{{ q }}" placeholder="Номер, имя, телефон или @ник">
+  <select name="status">
+    <option value="">Любой этап</option>
+    {% for item in statuses %}
+      <option value="{{ item.value }}" {{ 'selected' if selected_status == item.value }}>{{ item.value | order_status }}</option>
+    {% endfor %}
+  </select>
+  <select name="period">
+    <option value="">За всё время</option>
+    <option value="today" {{ 'selected' if period == 'today' }}>За сутки</option>
+    <option value="week" {{ 'selected' if period == 'week' }}>За неделю</option>
+    <option value="month" {{ 'selected' if period == 'month' }}>За месяц</option>
+  </select>
+  <button type="submit">Найти</button>
+</form>
+
+<div class="card">
+  {% if orders %}
+    <table>
+      <thead>
+        <tr>
+          <th>Номер</th><th>Дата</th><th>Клиент</th><th>Состав</th>
+          <th>Сумма</th><th>Доставка</th><th>Этап</th><th>Оплата</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in orders %}
+          <tr>
+            <td><a href="/admin/orders/{{ order.id }}">{{ order.display_number }}</a></td>
+            <td>{{ order.created_at | ru_datetime }}</td>
+            <td>{{ order.recipient_name or order.customer.display_name }}</td>
+            <td>
+              {% for item in order.items %}
+                {{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}<br>
+              {% else %}<span class="muted">—</span>{% endfor %}
+            </td>
+            <td>{{ order.total_kopecks | rubles }}</td>
+            <td>
+              {% if order.pickup_snapshot %}
+                {{ order.pickup_snapshot.get('provider_name', '') }}<br>
+                <span class="muted">{{ order.pickup_snapshot.get('city', '') }}</span>
+              {% else %}<span class="muted">не выбрана</span>{% endif %}
+            </td>
+            <td><span class="badge {{ order.status.value }}">{{ order.status.value | order_status }}</span></td>
+            <td>{{ order.paid_at | ru_datetime if order.paid_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">Ничего не нашлось. Попробуйте изменить условия поиска.</div>
+  {% endif %}
+</div>
+
+{% include "admin/_pagination.html" %}
+{% endblock %}

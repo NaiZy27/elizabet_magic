@@ -1,0 +1,102 @@
+[build-system]
+requires = ["poetry-core>=1.9"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "elizabet-magic"
+version = "0.1.0"
+description = "Мастерская подарочных боксов: Telegram-бот, веб-админка и фоновые задачи"
+authors = ["Elizabet Magic"]
+readme = "README.md"
+# Код лежит в src/: пакеты ставятся в окружение, PYTHONPATH прописывать не нужно.
+packages = [
+    { include = "core", from = "src" },
+    { include = "bot", from = "src" },
+    { include = "web", from = "src" },
+    { include = "worker", from = "src" },
+]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+
+# --- бот ---
+aiogram = ">=3.13,<4"
+
+# --- веб ---
+fastapi = ">=0.115,<1"
+uvicorn = { version = ">=0.30,<1", extras = ["standard"] }
+jinja2 = ">=3.1,<4"
+itsdangerous = ">=2.2,<3"      # подпись сессионной cookie (Starlette SessionMiddleware)
+python-multipart = ">=0.0.12"  # разбор form-data в админке
+
+# --- база ---
+sqlalchemy = { version = ">=2.0.36,<2.1", extras = ["asyncio"] }
+asyncpg = ">=0.30,<1"
+alembic = ">=1.13,<2"
+
+# --- конфиг и валидация ---
+pydantic = ">=2.9,<3"
+pydantic-settings = ">=2.5,<3"
+
+# --- кэш, очередь ---
+redis = ">=5.1,<7"
+taskiq = ">=0.11,<1"
+taskiq-redis = ">=1.0,<2"
+
+# --- прочее ---
+httpx = ">=0.27,<1"
+bcrypt = ">=4.2,<6"
+# База часовых поясов: в slim-образах и на Windows её нет, а Europe/Moscow нужна везде.
+tzdata = ">=2024.2"
+
+[tool.poetry.group.dev.dependencies]
+ruff = ">=0.7,<1"
+pytest = ">=8.3,<9"
+pytest-asyncio = ">=0.24,<2"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = ["migrations/versions", "admin_web_panel_demo"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "ASYNC",# flake8-async
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez: запрещает наивное время
+    "T20",  # flake8-print: print() вместо логирования
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "B008",    # Depends() в значении по умолчанию — идиома FastAPI
+    "RUF001",  # кириллица в строках — у нас весь интерфейс на русском
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+"migrations/*" = ["E501", "I001"]
+# Консольные команды общаются через print — это их интерфейс.
+"src/core/seed.py" = ["T201"]
+"src/web/create_admin.py" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "bot", "web", "worker"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:core.*"]
