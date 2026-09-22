@@ -41,7 +41,6 @@ def main_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BTN_CONTACTS)],
         ],
         resize_keyboard=True,
-        input_field_placeholder="Выберите пункт меню",
     )
 
 
@@ -54,7 +53,6 @@ def request_phone() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
         one_time_keyboard=True,
-        input_field_placeholder="Нажмите кнопку или введите номер",
     )
 
 
@@ -67,7 +65,6 @@ def request_location() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
         one_time_keyboard=True,
-        input_field_placeholder="Или напишите город и улицу",
     )
 
 

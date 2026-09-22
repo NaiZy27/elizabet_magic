@@ -140,11 +140,10 @@ async def pay_order(
         return
 
     await callback.answer()
-    builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Оплатить", url=payments.payment_url(payment))
+    url = payments.payment_url(payment)
+    text, keyboard = _payment_link(order, url)
     if callback.message is not None:
-        text = f"Заказ {order.display_number}."
-        sent = await callback.message.answer(text, reply_markup=builder.as_markup())
+        sent = await callback.message.answer(text, reply_markup=keyboard)
         orders.remember_bot_message(
             order,
             chat_id=sent.chat.id,
@@ -190,6 +189,16 @@ async def _strip(callback: CallbackQuery) -> None:
     """Снять кнопки с сообщения, по которому нажали: по ним больше нечего делать."""
     if callback.message is not None:
         await ui.strip_buttons(callback.bot, callback.message.chat.id, callback.message.message_id)
+
+
+def _payment_link(order: Order, url: str) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Сообщение со ссылкой на оплату: кнопкой, а если адрес локальный — текстом."""
+    text = f"Заказ {order.display_number} на {format_rubles(order.total_kopecks)}."
+    if not payments.is_button_url(url):
+        return f"{text}\n\nСсылка на оплату:\n<code>{url}</code>", None
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💳 Оплатить", url=url)
+    return text, builder.as_markup()
 
 
 def _title(order: Order) -> str:
@@ -264,9 +273,11 @@ async def _order_keyboard(session: AsyncSession, order: Order) -> InlineKeyboard
 
     builder = InlineKeyboardBuilder()
     payment = await payments.get_pending_payment(session, order.id)
-    if payment is not None:
-        builder.button(text="💳 Оплатить", url=payments.payment_url(payment))
+    url = payments.payment_url(payment) if payment is not None else ""
+    if url and payments.is_button_url(url):
+        builder.button(text="💳 Оплатить", url=url)
     else:
+        # Ссылки ещё нет или она локальная — кнопка запросит её сообщением.
         builder.button(
             text="💳 Оплатить",
             callback_data=OrderCB(order_id=order.id, action="pay").pack(),

@@ -222,14 +222,16 @@ def summary() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def payment(pay_url: str, order_id: int) -> InlineKeyboardMarkup:
+def payment(pay_url: str | None, order_id: int) -> InlineKeyboardMarkup:
     """Оформленный заказ: оплатить или отказаться.
 
     Менять состав уже нельзя — заказ ждёт оплаты. Кнопки снимутся сами, когда заказ
-    оплатят или отменят.
+    оплатят или отменят. `pay_url` пустой — ссылка показана в тексте сообщения
+    (так бывает на машине разработчика, где адрес виден только локально).
     """
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💳 Оплатить", url=pay_url))
+    if pay_url:
+        builder.row(InlineKeyboardButton(text="💳 Оплатить", url=pay_url))
     builder.row(
         InlineKeyboardButton(
             text="Отменить заказ",

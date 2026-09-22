@@ -1297,6 +1297,11 @@ async def pay(
     )
     await ui.clear_helper(callback, state)
     text = text or f"Заказ {order.display_number} оформлен, ждём оплату."
+    if not payments.is_button_url(url):
+        # Адрес виден только на этой машине — кнопку с ним Telegram не примет,
+        # поэтому показываем ссылку текстом (бывает при локальной разработке).
+        text = f"{text}\n\nСсылка на оплату:\n<code>{url}</code>"
+        url = ""
     message_id = await ui.show(callback, state, text=text, keyboard=kb.payment(url, order.id))
     bot, chat_id = ui.target(callback)
     if message_id is not None and chat_id is not None:
