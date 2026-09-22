@@ -1,4 +1,8 @@
-"""Список заказов и карточка заказа."""
+"""Список заказов и карточка заказа.
+
+Сборщику доступно то, что нужно у стола: состав, пожелания, этап и заметка.
+Деньги, чеки, возвраты, отмена и сроки для клиента — только владелице.
+"""
 
 from __future__ import annotations
 
@@ -12,13 +16,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from core.clock import now_utc
-from core.enums import OrderEventType, OrderStatus
+from core.db import folded
+from core.enums import CancelReason, OrderEventType, OrderStatus, PaymentStatus
 from core.errors import DomainError, NotFoundError
-from core.models import Customer, Order, Payment, Shipment
+from core.models import Customer, Order, OrderItem, Payment, Shipment
 from core.services import board as board_service
 from core.services import orders as orders_service
+from core.services import payments as payments_service
+from core.services import receipts as receipts_service
 from core.services import settings as settings_service
-from web.security import CurrentAdmin, DbSession, csrf_token, verify_csrf
+from web.security import CurrentAdmin, CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
 
 logger = logging.getLogger(__name__)
@@ -42,10 +49,11 @@ async def list_orders(
     statement = (
         select(Order)
         .options(
-            selectinload(Order.items),
+            selectinload(Order.items).selectinload(OrderItem.addons),
             selectinload(Order.addons),
             selectinload(Order.customer),
         )
+        .where(Order.status != OrderStatus.DRAFT)
         .order_by(Order.created_at.desc())
     )
 
@@ -54,11 +62,11 @@ async def list_orders(
         pattern = f"%{query.lower()}%"
         statement = statement.join(Order.customer).where(
             or_(
-                func.lower(Order.number).like(pattern),
-                func.lower(Order.recipient_name).like(pattern),
+                folded(Order.number).like(pattern),
+                folded(Order.recipient_name).like(pattern),
                 Order.recipient_phone.like(pattern),
-                func.lower(Customer.username).like(pattern),
-                func.lower(Customer.full_name).like(pattern),
+                folded(Customer.username).like(pattern),
+                folded(Customer.full_name).like(pattern),
             ),
         )
     if order_status:
@@ -101,9 +109,12 @@ async def order_detail(
     order = await _get_order(session, order_id)
     events = await orders_service.list_events(session, order_id)
 
-    payments = await session.scalars(
-        select(Payment).where(Payment.order_id == order_id).order_by(Payment.created_at.desc()),
+    payments = list(
+        await session.scalars(
+            select(Payment).where(Payment.order_id == order_id).order_by(Payment.created_at.desc()),
+        ),
     )
+    receipts = await receipts_service.list_for_order(session, order_id)
     shipments = await session.scalars(
         select(Shipment).where(Shipment.order_id == order_id).order_by(Shipment.created_at.desc()),
     )
@@ -128,14 +139,22 @@ async def order_detail(
         {
             "order": order,
             "events": events,
-            "payments": list(payments),
+            "payments": payments,
+            "can_refund": any(payment.status == PaymentStatus.PAID for payment in payments),
+            "receipts": receipts,
             "shipments": list(shipments),
             "ready_date": ready_date,
             "is_late": board_service.is_late(ready_date, order.promised_ready_date)
             if ready_date
             else False,
             "previous_orders": previous_orders or 0,
-            "statuses": list(OrderStatus),
+            # Черновик и «ожидает оплаты» руками не выставляются: их ставит сам заказ.
+            "statuses": [
+                item
+                for item in OrderStatus
+                if item not in {OrderStatus.DRAFT, OrderStatus.WAITING_PAYMENT}
+                or item == order.status
+            ],
             "admin": admin,
             "csrf_token": csrf_token(request),
         },
@@ -153,13 +172,19 @@ async def change_status(
 ):
     verify_csrf(request, csrf)
     order = await _get_order(session, order_id)
+    actor = orders_service.admin_actor(admin.id)
     try:
-        await orders_service.change_status(
-            session,
-            order,
-            OrderStatus(new_status),
-            actor=orders_service.admin_actor(admin.id),
-        )
+        target = OrderStatus(new_status)
+        if target == OrderStatus.CANCELLED:
+            # Отмена — отдельное действие владелицы: с причиной и снятием кнопок в боте.
+            if not admin.is_owner:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Отменить заказ может только владелица",
+                )
+            await orders_service.cancel(session, order, reason=CancelReason.ADMIN, actor=actor)
+        else:
+            await orders_service.change_status(session, order, target, actor=actor)
     except (DomainError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -191,12 +216,37 @@ async def save_note(
     return _back_to_order(order_id)
 
 
+@router.post("/{order_id}/arrived")
+async def mark_arrived(
+    request: Request,
+    order_id: int,
+    session: DbSession,
+    admin: CurrentAdmin,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    """Посылка в пункте выдачи. Пока службы доставки не подключены — отмечается здесь."""
+    verify_csrf(request, csrf)
+    order = await _get_order(session, order_id)
+    try:
+        await orders_service.mark_arrived(
+            session,
+            order,
+            actor=orders_service.admin_actor(admin.id),
+        )
+    except DomainError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error.message,
+        ) from error
+    return _back_to_order(order_id)
+
+
 @router.post("/{order_id}/production-days")
 async def save_production_days(
     request: Request,
     order_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     production_days: Annotated[int, Form(ge=1, le=60)],
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
@@ -221,7 +271,7 @@ async def save_promised_date(
     request: Request,
     order_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     promised_date: Annotated[str, Form()] = "",
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
@@ -260,18 +310,82 @@ async def cancel_order(
     request: Request,
     order_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     reason: Annotated[str, Form()] = "",
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
+    """Отмена без возврата денег. Для оплаченного заказа нужна кнопка «Возврат»."""
     verify_csrf(request, csrf)
     order = await _get_order(session, order_id)
     try:
         await orders_service.cancel(
             session,
             order,
+            reason=CancelReason.ADMIN,
             actor=orders_service.admin_actor(admin.id),
-            reason=reason.strip() or "отменён вручную",
+            comment=reason.strip() or "отменён вручную",
+        )
+    except DomainError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error.message,
+        ) from error
+    return _back_to_order(order_id)
+
+
+@router.post("/{order_id}/refund")
+async def refund_order(
+    request: Request,
+    order_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    reason: Annotated[str, Form()] = "",
+    confirm: Annotated[bool, Form()] = False,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    """Возврат денег. Пока — отметка о возврате, сделанном вручную."""
+    verify_csrf(request, csrf)
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Подтвердите, что деньги клиенту уже вернули",
+        )
+    order = await _get_order(session, order_id)
+    try:
+        await payments_service.refund_order(
+            session,
+            order,
+            actor=orders_service.admin_actor(admin.id),
+            reason=reason.strip() or "по решению владелицы",
+        )
+    except DomainError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error.message,
+        ) from error
+    return _back_to_order(order_id)
+
+
+@router.post("/{order_id}/receipt")
+async def save_receipt(
+    request: Request,
+    order_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    url: Annotated[str, Form()] = "",
+    external_id: Annotated[str, Form()] = "",
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    """Чек, пробитый вручную в «Мой налог»: ссылка сохраняется и уходит клиенту."""
+    verify_csrf(request, csrf)
+    order = await _get_order(session, order_id)
+    try:
+        await receipts_service.register_manual(
+            session,
+            order,
+            url=url,
+            external_id=external_id,
+            actor=orders_service.admin_actor(admin.id),
         )
     except DomainError as error:
         raise HTTPException(

@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -31,6 +32,7 @@ from core.models.base import (
     non_negative,
     positive,
 )
+from core.text import normalize_search
 
 if TYPE_CHECKING:
     from core.models.orders import Order
@@ -112,8 +114,21 @@ class PickupPoint(IdMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
     synced_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
+    #: Город, адрес и название в виде для поиска (см. core.text.normalize_search).
+    #: Заполняется само при каждой записи — руками не трогать.
+    search_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+    def refresh_search_text(self) -> None:
+        self.search_text = normalize_search(f"{self.city} {self.address} {self.name}")
+
     def __repr__(self) -> str:
         return f"<PickupPoint {self.provider}:{self.external_id} {self.city}>"
+
+
+@event.listens_for(PickupPoint, "before_insert")
+@event.listens_for(PickupPoint, "before_update")
+def _fill_search_text(_mapper, _connection, point: PickupPoint) -> None:
+    point.refresh_search_text()
 
 
 class Shipment(IdMixin, TimestampMixin, Base):

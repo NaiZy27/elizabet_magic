@@ -31,7 +31,7 @@
         {% for payment in payments %}
           <tr>
             <td>№{{ payment.id }}</td>
-            <td><a href="/admin/orders/{{ payment.order_id }}">{{ payment.order.display_number }}</a></td>
+            <td><a href="/admin/orders/{{ payment.order_id }}">{{ payment.order.admin_label }}</a></td>
             <td>{{ payment.order.recipient_name or payment.order.customer.display_name }}</td>
             <td>
               {{ payment.provider.value | payment_provider }}

@@ -31,6 +31,9 @@ python-multipart = ">=0.0.12"  # разбор form-data в админке
 
 # --- база ---
 sqlalchemy = { version = ">=2.0.36,<2.1", extras = ["asyncio"] }
+# Явно: SQLAlchemy ставит greenlet не на всех платформах — на Mac с Apple Silicon (arm64)
+# без этой строки асинхронный движок падает с «greenlet library is required».
+greenlet = ">=3.0"
 asyncpg = ">=0.30,<1"
 alembic = ">=1.13,<2"
 
@@ -40,7 +43,7 @@ pydantic-settings = ">=2.5,<3"
 
 # --- кэш, очередь ---
 redis = ">=5.1,<7"
-taskiq = ">=0.11,<1"
+taskiq = ">=0.12,<1"           # SmartRetryMiddleware — повторы с паузой
 taskiq-redis = ">=1.0,<2"
 
 # --- прочее ---

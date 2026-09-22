@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -21,6 +22,17 @@ from sqlalchemy.ext.asyncio import (
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def folded(column):
+    """Колонка в нижнем регистре для поиска без учёта регистра.
+
+    Обычный lower() берёт правила из локали базы, а у базы с локалью C он не трогает
+    кириллицу: «анна» не находит «Анна». Сортировка ICU работает одинаково при любой
+    локали — и на машине разработчика, и в контейнере.
+    """
+    return func.lower(column.collate("und-x-icu"))
+
 
 #: Ключ в session.info, под которым копятся действия «после успешного коммита».
 _AFTER_COMMIT = "after_commit"

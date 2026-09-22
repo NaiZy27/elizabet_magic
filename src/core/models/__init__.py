@@ -15,7 +15,7 @@ from core.models.orders import (
     OrderItem,
     order_number_seq,
 )
-from core.models.payments import Payment
+from core.models.payments import Payment, Receipt
 from core.models.settings import AdminUser, MessageTemplate, Setting
 
 __all__ = [
@@ -35,6 +35,7 @@ __all__ = [
     "PickupPoint",
     "Product",
     "ProductVariant",
+    "Receipt",
     "Setting",
     "Shipment",
     "order_number_seq",

@@ -11,12 +11,13 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.enums import DeliveryProviderCode, ProviderEnvironment
 from core.errors import NotFoundError
 from core.models import DeliveryProvider, Order, PickupPoint
+from core.text import search_words
 
 #: Сколько пунктов показываем клиенту за раз.
 PICKUP_POINTS_PAGE_SIZE = 5
@@ -112,7 +113,17 @@ async def get_provider(
     return provider
 
 
-async def search_by_city(
+@dataclass(frozen=True, slots=True)
+class TextSearchResult:
+    points: list[PickupPoint]
+    #: False — точного совпадения по адресу нет, показаны пункты по первому слову
+    #: запроса (обычно это город).
+    exact: bool
+    #: Слово, по которому искали, когда совпадение неточное.
+    fallback_word: str | None = None
+
+
+async def search_by_text(
     session: AsyncSession,
     query: str,
     *,
@@ -120,16 +131,40 @@ async def search_by_city(
     limit: int = PICKUP_POINTS_PAGE_SIZE,
     offset: int = 0,
     providers: Sequence[DeliveryProviderCode] | None = None,
+) -> TextSearchResult:
+    """Пункты выдачи по городу и адресу, как их пишут люди.
+
+    «москва, ул березовая аллея 19к1» разбирается на слова, служебные слова вроде
+    «ул» и «д» отбрасываются, и пункт должен содержать каждое оставшееся слово.
+    Если так ничего не нашлось, ищем по первому слову — обычно это город, и клиент
+    увидит хотя бы пункты в своём городе.
+    """
+    words = search_words(query)
+    if not words:
+        return TextSearchResult(points=[], exact=True)
+
+    points = await _search_words(session, words, environment, limit, offset, providers)
+    if points or len(words) == 1:
+        return TextSearchResult(points=points, exact=True)
+
+    fallback = await _search_words(session, words[:1], environment, limit, offset, providers)
+    return TextSearchResult(points=fallback, exact=False, fallback_word=words[0])
+
+
+async def _search_words(
+    session: AsyncSession,
+    words: Sequence[str],
+    environment: ProviderEnvironment,
+    limit: int,
+    offset: int,
+    providers: Sequence[DeliveryProviderCode] | None,
 ) -> list[PickupPoint]:
-    """Пункты выдачи по названию города или части адреса."""
-    pattern = f"%{query.strip().lower()}%"
     statement = (
         select(PickupPoint)
         .where(
             PickupPoint.is_active.is_(True),
             PickupPoint.environment == environment,
-            func.lower(PickupPoint.city).like(pattern)
-            | func.lower(PickupPoint.address).like(pattern),
+            *(PickupPoint.search_text.contains(word, autoescape=True) for word in words),
         )
         .order_by(PickupPoint.city, PickupPoint.address)
         .offset(offset)

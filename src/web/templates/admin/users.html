@@ -1,0 +1,74 @@
+{% extends "admin/base.html" %}
+{% block title %}Пользователи{% endblock %}
+
+{% block content %}
+<div class="topline">
+  <div>
+    <div class="eyebrow">Доступ к панели</div>
+    <h1>Пользователи</h1>
+    <p>Сборщик видит доску и состав заказов с пожеланиями, меняет этапы и пишет заметки.
+      Суммы, клиенты, чеки, каталог и настройки ему недоступны.</p>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Кто входит в панель</h2>
+  <table>
+    <thead><tr><th>Логин</th><th>Роль</th><th>Вход</th><th>Последний вход</th><th>Новый пароль</th><th></th></tr></thead>
+    <tbody>
+      {% for user in users %}
+        {% set form_id = 'user-' ~ user.id %}
+        <tr>
+          <td><strong>{{ user.username }}</strong>{% if user.id == admin.id %} <span class="muted">(вы)</span>{% endif %}</td>
+          <td>
+            <select name="role" form="{{ form_id }}">
+              {% for role in roles %}
+                <option value="{{ role.value }}" {{ 'selected' if user.role == role }}>{{ role.value | admin_role }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <label class="inline-check">
+              <input type="checkbox" name="is_active" value="true" form="{{ form_id }}" {{ 'checked' if user.is_active }}> разрешён
+            </label>
+          </td>
+          <td>{{ user.last_login_at | ru_datetime }}</td>
+          <td><input name="password" type="password" autocomplete="new-password" placeholder="не менять" form="{{ form_id }}"></td>
+          <td>
+            <form id="{{ form_id }}" method="post" action="/admin/users/{{ user.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="secondary" type="submit">Сохранить</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Добавить пользователя</h2>
+  <form method="post" action="/admin/users" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row">
+      <label for="username">Логин</label>
+      <input id="username" name="username" autocomplete="off" required>
+    </div>
+    <div class="form-row">
+      <label for="password">Пароль</label>
+      <input id="password" name="password" type="password" autocomplete="new-password"
+             minlength="{{ min_password_length }}" required>
+      <span class="helptext">Не короче {{ min_password_length }} символов. Хранится только в зашифрованном виде.</span>
+    </div>
+    <div class="form-row">
+      <label for="role">Роль</label>
+      <select id="role" name="role">
+        {% for role in roles %}
+          <option value="{{ role.value }}" {{ 'selected' if role.value == 'assembler' }}>{{ role.value | admin_role }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row"><button type="submit" style="margin-top:26px">Добавить</button></div>
+  </form>
+</section>
+{% endblock %}

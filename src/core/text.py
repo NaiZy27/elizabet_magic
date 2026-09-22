@@ -37,3 +37,63 @@ def truncate(value: str, limit: int, tail: str = "…") -> str:
     if len(value) <= limit:
         return value
     return value[: max(0, limit - len(tail))].rstrip() + tail
+
+
+def normalize_search(value: str) -> str:
+    """Строка для поиска: нижний регистр, «ё» как «е», без знаков препинания.
+
+    Делается в Python, а не функцией lower() в базе: у базы с локалью C lower()
+    не трогает кириллицу, и «москва» не находит «Москва».
+    """
+    folded = value.casefold().replace("ё", "е")
+    cleaned = "".join(character if character.isalnum() else " " for character in folded)
+    return " ".join(cleaned.split())
+
+
+#: Слова, которые люди пишут в адресе, но которых может не быть в справочнике ПВЗ.
+ADDRESS_STOPWORDS = frozenset(
+    {
+        "г",
+        "гор",
+        "город",
+        "ул",
+        "улица",
+        "д",
+        "дом",
+        "пр",
+        "просп",
+        "проспект",
+        "пер",
+        "переулок",
+        "ш",
+        "шоссе",
+        "б",
+        "бульв",
+        "бульвар",
+        "пл",
+        "площадь",
+        "наб",
+        "набережная",
+        "к",
+        "корп",
+        "корпус",
+        "стр",
+        "строение",
+        "кв",
+        "обл",
+        "область",
+        "район",
+        "мкр",
+        "микрорайон",
+        "россия",
+        "рф",
+    },
+)
+
+
+def search_words(query: str) -> list[str]:
+    """Значимые слова запроса.
+
+    «Москва, ул. Берёзовая аллея 19к1» -> [москва, березовая, аллея, 19к1].
+    """
+    return [word for word in normalize_search(query).split() if word not in ADDRESS_STOPWORDS]

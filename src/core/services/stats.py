@@ -1,6 +1,7 @@
 """Базовая статистика за период.
 
-Считаем только по оплаченным заказам: черновики и неоплаченные в метрики не попадают.
+Считаем только по оплаченным заказам: черновики, неоплаченные и возвращённые
+в выручку не попадают.
 """
 
 from __future__ import annotations
@@ -56,7 +57,9 @@ class Stats:
         return round(self.orders_with_video * 100 / self.paid_orders)
 
 
-def period_range(period: str, *, since: dt.date | None, until: dt.date | None) -> tuple[dt.date, dt.date]:
+def period_range(
+    period: str, *, since: dt.date | None, until: dt.date | None
+) -> tuple[dt.date, dt.date]:
     """Границы периода по выбору в админке."""
     today = today_moscow()
     if period == "today":
@@ -77,7 +80,12 @@ async def collect(
     """Собрать метрики за период по дате оплаты."""
     # Заказ попадает в период по моменту оплаты — по нему считается выручка.
     paid_at_date = func.date(func.timezone("Europe/Moscow", Order.paid_at))
-    in_period = (Order.paid_at.is_not(None), paid_at_date >= since, paid_at_date <= until)
+    in_period = (
+        Order.paid_at.is_not(None),
+        Order.refunded_at.is_(None),
+        paid_at_date >= since,
+        paid_at_date <= until,
+    )
 
     totals = (
         await session.execute(
@@ -107,6 +115,7 @@ async def collect(
         .where(*in_period, OrderAddon.code_snapshot == VIDEO_ADDON_CODE),
     )
 
+    # Популярность считаем по боксам, а не по заказам: в одном заказе их может быть несколько.
     top_rows = (
         await session.execute(
             select(
@@ -134,7 +143,7 @@ async def collect(
     repeat_customers = await session.scalar(
         select(func.count()).select_from(
             select(Order.customer_id)
-            .where(Order.paid_at.is_not(None))
+            .where(Order.paid_at.is_not(None), Order.refunded_at.is_(None))
             .group_by(Order.customer_id)
             .having(func.count(Order.id) > 1)
             .subquery(),

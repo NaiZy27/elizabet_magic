@@ -9,7 +9,8 @@ from sqlalchemy import DateTime, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.models.base import Base, IdMixin, TimestampMixin
+from core.enums import AdminRole
+from core.models.base import Base, IdMixin, TimestampMixin, enum_type
 
 
 class MessageTemplate(IdMixin, TimestampMixin, Base):
@@ -42,17 +43,30 @@ class Setting(IdMixin, TimestampMixin, Base):
 
 
 class AdminUser(IdMixin, TimestampMixin, Base):
-    """Учётная запись для входа в админку. Создаётся из командной строки."""
+    """Учётная запись для входа в панель.
+
+    Первую (владелицы) создают из командной строки, остальных — владелица в разделе
+    «Пользователи». Пароль хранится только bcrypt-хэшем.
+    """
 
     __tablename__ = "admin_users"
 
     username: Mapped[str] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(128))
+    role: Mapped[AdminRole] = mapped_column(
+        enum_type(AdminRole, "admin_role"),
+        default=AdminRole.OWNER,
+        server_default=AdminRole.OWNER.value,
+    )
     is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
     last_login_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True),
         default=None,
     )
 
+    @property
+    def is_owner(self) -> bool:
+        return self.role == AdminRole.OWNER
+
     def __repr__(self) -> str:
-        return f"<AdminUser {self.username}>"
+        return f"<AdminUser {self.username} {self.role}>"

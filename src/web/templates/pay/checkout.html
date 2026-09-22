@@ -20,8 +20,14 @@
             <td>{{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}</td>
             <td style="text-align:right">{{ (item.unit_price_kopecks * item.quantity) | rubles }}</td>
           </tr>
+          {% for addon in item.addons %}
+            <tr>
+              <td>&nbsp;&nbsp;+ {{ addon.name_snapshot }}</td>
+              <td style="text-align:right">{{ addon.total_kopecks | rubles }}</td>
+            </tr>
+          {% endfor %}
         {% endfor %}
-        {% for addon in order.addons %}
+        {% for addon in order.order_addons %}
           <tr>
             <td>{{ addon.name_snapshot }}{% if addon.quantity > 1 %} × {{ addon.quantity }}{% endif %}</td>
             <td style="text-align:right">{{ (addon.unit_price_kopecks * addon.quantity) | rubles }}</td>

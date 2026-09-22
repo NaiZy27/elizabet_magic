@@ -11,6 +11,56 @@
 </div>
 
 <section class="card">
+  <h2>Приём заказов</h2>
+  <p class="muted">
+    Сейчас:
+    {% if intake_state.is_open %}
+      <span class="badge queued">приём открыт</span>
+    {% else %}
+      <span class="badge cancelled">приём закрыт</span>
+    {% endif %}
+    · в работе {{ intake_load }}{% if intake.queue_limit %} из {{ intake.queue_limit }}{% endif %}
+    {{ intake_load | pluralize_ru('заказ', 'заказа', 'заказов') }}
+  </p>
+  {% if not intake_state.is_open %}
+    <p class="helptext" style="white-space:pre-line">Клиенты видят: {{ intake_state.message }}</p>
+  {% endif %}
+  <form method="post" action="/admin/settings/intake">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="inline-check">
+      <input type="checkbox" name="accepting_orders" value="true" {{ 'checked' if intake.accepting_orders }}>
+      Принимаем заказы
+    </label>
+    <div class="form-grid" style="margin-top:12px">
+      <div class="form-row">
+        <label for="resume_on">Открыть приём автоматически</label>
+        <input id="resume_on" name="resume_on" type="date"
+               value="{{ intake.resume_on.isoformat() if intake.resume_on else '' }}">
+        <span class="helptext">Если приём закрыт — с этого дня он откроется сам. Удобно на время отпуска.</span>
+      </div>
+      <div class="form-row">
+        <label for="queue_limit">Лимит заказов в работе</label>
+        <input id="queue_limit" name="queue_limit" type="number" min="1" max="1000"
+               value="{{ intake.queue_limit or '' }}" placeholder="без лимита">
+        <span class="helptext">Оплаченные в очереди и на сборке плюс ожидающие оплаты. Когда лимит
+          заполнен, бот называет ближайшую дату, когда появится место.</span>
+      </div>
+      <div class="form-row">
+        <label for="extra_lead_days">Запас к сроку, рабочих дней</label>
+        <input id="extra_lead_days" name="extra_lead_days" type="number" min="0" max="60"
+               value="{{ intake.extra_lead_days }}">
+        <span class="helptext">Прибавляется к дате готовности, которую называем клиенту при оплате.</span>
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="pause_message">Что написать клиентам, пока приём закрыт</label>
+      <textarea id="pause_message" name="pause_message">{{ intake.pause_message }}</textarea>
+    </div>
+    <button type="submit">Сохранить приём заказов</button>
+  </form>
+</section>
+
+<section class="card">
   <h2>Рабочие дни</h2>
   <p class="muted">От них зависят все расчётные даты готовности на доске.</p>
   <form method="post" action="/admin/settings/calendar">
@@ -50,6 +100,11 @@
       <label for="draft_ttl_days">Хранить незаконченные оформления, дней</label>
       <input id="draft_ttl_days" name="draft_ttl_days" type="number" min="1" max="365"
              value="{{ rules.draft_ttl_days }}">
+    </div>
+    <div class="form-row">
+      <label for="max_boxes_per_order">Боксов в одном заказе, не больше</label>
+      <input id="max_boxes_per_order" name="max_boxes_per_order" type="number" min="1" max="50"
+             value="{{ rules.max_boxes_per_order }}">
       <button type="submit" style="margin-top:12px">Сохранить правила</button>
     </div>
   </form>

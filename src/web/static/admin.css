@@ -82,7 +82,8 @@ input[type=checkbox] { width: auto; }
 .badge.ready { background: #e9e5fa; color: #61509a; }
 .badge.shipped { background: #deeffb; color: #326c91; }
 .badge.completed, .badge.paid { background: #dff3e9; color: var(--good); }
-.badge.cancelled, .badge.failed, .badge.refunded { background: #fde5e8; color: var(--bad); }
+.badge.cancelled, .badge.failed, .badge.refunded, .badge.annulled { background: #fde5e8; color: var(--bad); }
+.badge.registered { background: #dff3e9; color: var(--good); }
 .badge.warn { background: #fff0d9; color: var(--warn); }
 
 .flash { padding: 12px 14px; background: #e2f5ea; color: var(--good); border-radius: 11px; margin-bottom: 16px; }
@@ -96,6 +97,8 @@ input[type=checkbox] { width: auto; }
 .video-flag { display: block; padding: 12px 14px; border-radius: 12px; font-weight: 800; text-align: center; }
 .video-flag.yes { background: #f9e2ed; color: #8e2856; }
 .video-flag.no { background: #f1eaee; color: var(--muted); }
+.box-card { margin-top: 14px; padding: 12px 14px; border: 1px solid #f1e8ed; border-radius: 12px; }
+.box-head { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 6px; }
 code { background: #f4edf1; padding: 2px 6px; border-radius: 6px; }
 .empty { text-align: center; padding: 34px; color: var(--muted); }
 .history { display: grid; gap: 12px; }

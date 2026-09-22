@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query, Request
 
 from core.labels import delivery_provider_label
 from core.services import stats as stats_service
-from web.security import CurrentAdmin, DbSession, csrf_token
+from web.security import CurrentOwner, DbSession, csrf_token
 from web.templating import render
 
 router = APIRouter(prefix="/stats", tags=["admin"])
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/stats", tags=["admin"])
 async def stats_page(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     period: Annotated[str, Query()] = "month",
     since: Annotated[str, Query()] = "",
     until: Annotated[str, Query()] = "",

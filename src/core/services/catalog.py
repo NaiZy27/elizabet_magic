@@ -1,7 +1,8 @@
 """Каталог: что показываем в боте, сколько стоит заказ и сколько его собирать.
 
 Итоговая сумма считается только здесь. Клиент присылает выбор (вариант, число
-ложечек, услуги), цену за него мы берём из базы — числам из callback_data не доверяем.
+ложечек, услуги к каждому боксу), цену за него мы берём из базы — числам из
+callback_data не доверяем.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.enums import AddonChargeMode
+from core.enums import VIDEO_ADDON_CODE, AddonChargeMode
 from core.errors import NotFoundError, ValidationError
 from core.models import Addon, Color, Product, ProductVariant
 from core.text import spoons_phrase
@@ -23,28 +24,17 @@ from core.text import spoons_phrase
 
 @dataclass(frozen=True, slots=True)
 class RequestedItem:
-    """Выбор клиента: какой вариант, сколько боксов и сколько в каждом ложечек."""
+    """Выбор клиента по одному боксу: вариант, ложечки и услуги к этому боксу."""
 
     variant_id: int
     quantity: int = 1
     #: None — столько, сколько в самом варианте; больше — докупка ложечек.
     spoon_count: int | None = None
+    #: Услуги к этому боксу — например, видео его сборки.
+    addon_ids: tuple[int, ...] = ()
 
 
 # --- что посчитали ---
-
-
-@dataclass(frozen=True, slots=True)
-class PricedItem:
-    variant: ProductVariant
-    quantity: int
-    spoon_count: int
-    unit_price_kopecks: int
-    name_snapshot: str
-
-    @property
-    def total_kopecks(self) -> int:
-        return self.unit_price_kopecks * self.quantity
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,8 +50,26 @@ class PricedAddon:
 
 
 @dataclass(frozen=True, slots=True)
+class PricedItem:
+    variant: ProductVariant
+    quantity: int
+    spoon_count: int
+    unit_price_kopecks: int
+    name_snapshot: str
+    #: Услуги «за каждый бокс», выбранные к этому боксу.
+    addons: list[PricedAddon] = field(default_factory=list)
+
+    @property
+    def total_kopecks(self) -> int:
+        return self.unit_price_kopecks * self.quantity + sum(
+            addon.total_kopecks for addon in self.addons
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PricedOrder:
     items: list[PricedItem] = field(default_factory=list)
+    #: Услуги «один раз на заказ».
     addons: list[PricedAddon] = field(default_factory=list)
     delivery_kopecks: int = 0
     production_days: int = 1
@@ -147,23 +155,21 @@ def item_name(product: Product, spoon_count: int) -> str:
 
 
 def compute_production_days(
-    products: Sequence[Product],
-    addons: Sequence[Addon],
+    boxes: Sequence[tuple[Product, Sequence[Addon]]],
+    order_addons: Sequence[Addon] = (),
 ) -> int:
     """Срок изготовления заказа в рабочих днях.
 
-    Считаем по самому долгому боксу и добавляем услуги: видео — плюс день.
-    Предположение «несколько боксов собираются не дольше одного» согласовано в ТЗ
-    как открытый вопрос — при необходимости правится здесь.
+    `boxes` — по записи на каждый физический бокс: сам бокс и услуги к нему.
+    База — самый долгий бокс. Услуги к боксу удлиняют срок за каждый бокс
+    отдельно: видео на двух боксах — плюс два дня. Услуги на весь заказ — один раз.
+    Предположение «несколько боксов без услуг собираются не дольше одного» — открытый
+    вопрос ТЗ, при необходимости правится здесь.
     """
-    base = max((product.production_days for product in products), default=1)
-    extra = sum(addon.extra_production_days for addon in addons)
-    return max(1, base + extra)
-
-
-def addon_quantity(charge_mode: AddonChargeMode, box_count: int) -> int:
-    """Сколько раз считать услугу: за каждый бокс или один раз на заказ."""
-    return box_count if charge_mode == AddonChargeMode.PER_BOX else 1
+    base = max((product.production_days for product, _ in boxes), default=1)
+    per_box = sum(addon.extra_production_days for _, addons in boxes for addon in addons)
+    per_order = sum(addon.extra_production_days for addon in order_addons)
+    return max(1, base + per_box + per_order)
 
 
 # --- работа с базой ---
@@ -206,6 +212,26 @@ async def list_active_colors(session: AsyncSession) -> list[Color]:
     return list(result)
 
 
+async def color_names(session: AsyncSession, color_ids: Sequence[int]) -> list[str]:
+    """Названия цветов в порядке палитры — для снимка пожеланий в заказе."""
+    if not color_ids:
+        return []
+    result = await session.scalars(
+        select(Color).where(Color.id.in_(set(color_ids))).order_by(Color.sort_order, Color.id),
+    )
+    return [color.name for color in result]
+
+
+async def color_ids_by_names(session: AsyncSession, names: Sequence[str]) -> list[int]:
+    """Обратно: id активных цветов по названиям — чтобы отметить их при правке бокса."""
+    if not names:
+        return []
+    result = await session.scalars(
+        select(Color.id).where(Color.name.in_(set(names)), Color.is_active.is_(True)),
+    )
+    return list(result)
+
+
 async def list_active_addons(session: AsyncSession) -> list[Addon]:
     result = await session.scalars(
         select(Addon).where(Addon.is_active.is_(True)).order_by(Addon.sort_order, Addon.id),
@@ -213,16 +239,24 @@ async def list_active_addons(session: AsyncSession) -> list[Addon]:
     return list(result)
 
 
+async def get_video_addon(session: AsyncSession) -> Addon | None:
+    """Услуга «видео сборки», если она включена."""
+    return await session.scalar(
+        select(Addon).where(Addon.code == VIDEO_ADDON_CODE, Addon.is_active.is_(True)),
+    )
+
+
 async def price_order(
     session: AsyncSession,
     *,
     items: Sequence[RequestedItem],
-    addon_ids: Sequence[int] = (),
+    order_addon_ids: Sequence[int] = (),
     delivery_kopecks: int = 0,
 ) -> PricedOrder:
-    """Посчитать заказ целиком: позиции, услуги, срок изготовления.
+    """Посчитать заказ целиком: боксы с их услугами, общие услуги, срок изготовления.
 
-    Единственное место, где рождается итоговая сумма.
+    Единственное место, где рождается итоговая сумма. Если к боксу прислали услугу
+    «один раз на заказ», она переезжает на заказ: брать её за каждый бокс нельзя.
     """
     if not items:
         raise ValidationError("В заказе нет ни одного бокса")
@@ -230,9 +264,13 @@ async def price_order(
         raise ValidationError("Стоимость доставки не может быть отрицательной")
 
     variants = await _load_variants(session, [item.variant_id for item in items])
+    all_addon_ids = {addon_id for item in items for addon_id in item.addon_ids}
+    all_addon_ids.update(order_addon_ids)
+    addons = await _load_addons(session, all_addon_ids)
 
+    order_level: set[int] = set(order_addon_ids)
     priced_items: list[PricedItem] = []
-    used_products: dict[int, Product] = {}
+    boxes: list[tuple[Product, list[Addon]]] = []
     for item in items:
         if item.quantity <= 0:
             raise ValidationError("Количество боксов должно быть больше нуля")
@@ -240,6 +278,15 @@ async def price_order(
         product = variant.product
         spoon_count = item.spoon_count if item.spoon_count is not None else variant.spoon_count
         base_variant, unit_price = price_for_spoons(product, product.variants, spoon_count)
+
+        box_addons: list[Addon] = []
+        for addon_id in dict.fromkeys(item.addon_ids):
+            addon = addons[addon_id]
+            if addon.charge_mode == AddonChargeMode.PER_ORDER:
+                order_level.add(addon_id)
+            else:
+                box_addons.append(addon)
+
         priced_items.append(
             PricedItem(
                 variant=base_variant,
@@ -247,21 +294,20 @@ async def price_order(
                 spoon_count=spoon_count,
                 unit_price_kopecks=unit_price,
                 name_snapshot=item_name(product, spoon_count),
+                addons=[_price_addon(addon, quantity=item.quantity) for addon in box_addons],
             ),
         )
-        used_products[product.id] = product
+        boxes.extend((product, box_addons) for _ in range(item.quantity))
 
-    box_count = sum(item.quantity for item in priced_items)
-    priced_addons = await _price_addons(session, addon_ids, box_count=box_count)
-
+    order_addons = sorted(
+        (addons[addon_id] for addon_id in order_level),
+        key=lambda addon: (addon.sort_order, addon.id),
+    )
     return PricedOrder(
         items=priced_items,
-        addons=priced_addons,
+        addons=[_price_addon(addon, quantity=1) for addon in order_addons],
         delivery_kopecks=delivery_kopecks,
-        production_days=compute_production_days(
-            list(used_products.values()),
-            [priced.addon for priced in priced_addons],
-        ),
+        production_days=compute_production_days(boxes, order_addons),
     )
 
 
@@ -286,32 +332,23 @@ async def _load_variants(
     return variants
 
 
-async def _price_addons(
-    session: AsyncSession,
-    addon_ids: Sequence[int],
-    *,
-    box_count: int,
-) -> list[PricedAddon]:
-    unique_ids = set(addon_ids)
-    if not unique_ids:
-        return []
-    result = await session.scalars(
-        select(Addon).where(Addon.id.in_(unique_ids)).order_by(Addon.sort_order, Addon.id),
-    )
-    addons = list(result)
-    if len(addons) != len(unique_ids):
+async def _load_addons(session: AsyncSession, addon_ids: set[int]) -> dict[int, Addon]:
+    if not addon_ids:
+        return {}
+    result = await session.scalars(select(Addon).where(Addon.id.in_(addon_ids)))
+    addons = {addon.id: addon for addon in result}
+    if addons.keys() != addon_ids:
         raise NotFoundError("Дополнительная услуга не найдена")
-
-    priced: list[PricedAddon] = []
-    for addon in addons:
+    for addon in addons.values():
         if not addon.is_active:
             raise ValidationError(f"Услуга «{addon.name}» сейчас недоступна")
-        priced.append(
-            PricedAddon(
-                addon=addon,
-                quantity=addon_quantity(addon.charge_mode, box_count),
-                unit_price_kopecks=addon.price_kopecks,
-                name_snapshot=addon.name,
-            ),
-        )
-    return priced
+    return addons
+
+
+def _price_addon(addon: Addon, *, quantity: int) -> PricedAddon:
+    return PricedAddon(
+        addon=addon,
+        quantity=quantity,
+        unit_price_kopecks=addon.price_kopecks,
+        name_snapshot=addon.name,
+    )

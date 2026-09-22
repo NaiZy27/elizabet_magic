@@ -120,14 +120,16 @@ def verify_csrf(request: Request, submitted: str | None) -> None:
 
 
 class RequireLogin:
-    """Зависимость: пускает только с открытой сессией.
+    """Зависимость: пускает только с открытой сессией и нужной ролью.
 
     HTML-страницы уводят на форму входа, запросы к /api отвечают 401 —
-    чтобы доска показала внятную ошибку, а не редирект в JSON.
+    чтобы доска показала внятную ошибку, а не редирект в JSON. Вошедший, но без
+    нужной роли, получает 403.
     """
 
-    def __init__(self, *, api: bool = False) -> None:
+    def __init__(self, *, api: bool = False, owner_only: bool = False) -> None:
         self.api = api
+        self.owner_only = owner_only
 
     async def __call__(
         self,
@@ -149,6 +151,12 @@ class RequireLogin:
                     detail="Сессия закончилась, войдите заново",
                 )
             raise NotAuthenticated(next_url=request.url.path)
+
+        if self.owner_only and not user.is_owner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Этот раздел доступен только владелице",
+            )
         return user
 
 
@@ -173,9 +181,12 @@ def is_safe_next(value: str) -> bool:
     return value.startswith("/") and not value.startswith("//")
 
 
-#: Готовые зависимости.
+#: Готовые зависимости. CurrentAdmin — любой вошедший (владелица или сборщик),
+#: CurrentOwner — только владелица: деньги, каталог, клиенты, настройки, пользователи.
 require_login = RequireLogin()
 require_login_api = RequireLogin(api=True)
+require_owner = RequireLogin(owner_only=True)
 CurrentAdmin = Annotated[AdminUser, Depends(require_login)]
 CurrentAdminApi = Annotated[AdminUser, Depends(require_login_api)]
+CurrentOwner = Annotated[AdminUser, Depends(require_owner)]
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]

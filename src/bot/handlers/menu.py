@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot import ui
 from bot.keyboards.common import (
     BTN_CONTACTS,
     BTN_DELIVERY,
@@ -16,7 +17,6 @@ from bot.keyboards.common import (
     main_menu,
 )
 from core.enums import AddonChargeMode
-from core.models import Customer
 from core.money import format_rubles
 from core.services import catalog, delivery, settings
 from core.services.catalog import active_variants
@@ -42,13 +42,13 @@ async def start_with_payload(
             reply_markup=main_menu(),
         )
         return
-    await state.clear()
+    await _leave_checkout(message, state)
     await message.answer(texts.greeting, reply_markup=main_menu())
 
 
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    await state.clear()
+    await _leave_checkout(message, state)
     texts = await settings.get_bot_texts(session)
     await message.answer(texts.greeting, reply_markup=main_menu())
 
@@ -56,8 +56,15 @@ async def start(message: Message, state: FSMContext, session: AsyncSession) -> N
 @router.message(Command("menu"))
 async def show_menu(message: Message, state: FSMContext) -> None:
     """Вернуться в меню, прервав незаконченный шаг."""
-    await state.clear()
+    await _leave_checkout(message, state)
     await message.answer("Главное меню", reply_markup=main_menu())
+
+
+async def _leave_checkout(message: Message, state: FSMContext) -> None:
+    """Выйти из оформления: у его сообщения снимаются кнопки, черновик остаётся в базе."""
+    await ui.retire(message, state)
+    await ui.clear_helper(message, state)
+    await state.clear()
 
 
 @router.message(F.text == BTN_PRICES)
@@ -89,9 +96,7 @@ async def show_prices(message: Message, session: AsyncSession) -> None:
         blocks.append("\n<b>Дополнительно</b>")
         for addon in addons:
             suffix = (
-                "за каждый бокс"
-                if addon.charge_mode == AddonChargeMode.PER_BOX
-                else "за заказ"
+                "за каждый бокс" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
             )
             blocks.append(f"{addon.name} — +{format_rubles(addon.price_kopecks)} {suffix}")
 

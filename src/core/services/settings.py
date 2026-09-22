@@ -22,6 +22,7 @@ from core.schemas.settings import (
     BotTextsSettings,
     ContactsSettings,
     FaqSettings,
+    IntakeSettings,
     OrderRulesSettings,
     SettingKey,
     SettingsModel,
@@ -69,6 +70,10 @@ async def get_working_calendar(session: AsyncSession) -> WorkingCalendar:
 
 async def get_order_rules(session: AsyncSession) -> OrderRulesSettings:
     return await read_setting(session, SettingKey.ORDER_RULES, OrderRulesSettings)
+
+
+async def get_intake(session: AsyncSession) -> IntakeSettings:
+    return await read_setting(session, SettingKey.INTAKE, IntakeSettings)
 
 
 async def get_unpaid_ttl(session: AsyncSession) -> dt.timedelta:

@@ -8,12 +8,16 @@ from __future__ import annotations
 
 from core.enums import (
     AddonChargeMode,
+    AdminRole,
+    CancelReason,
     DeliveryProviderCode,
     MessageTemplateKey,
     OrderEventType,
     OrderStatus,
     PaymentProvider,
     PaymentStatus,
+    ReceiptProvider,
+    ReceiptStatus,
     ShipmentStatus,
 )
 
@@ -39,6 +43,31 @@ PAYMENT_STATUS_LABELS: dict[PaymentStatus, str] = {
 PAYMENT_PROVIDER_LABELS: dict[PaymentProvider, str] = {
     PaymentProvider.ROBOKASSA: "Робокасса",
     PaymentProvider.STUB: "Тестовая оплата",
+}
+
+CANCEL_REASON_LABELS: dict[CancelReason, str] = {
+    CancelReason.EXPIRED: "не оплачен вовремя",
+    CancelReason.CUSTOMER: "отменён клиентом",
+    CancelReason.ADMIN: "отменён в панели",
+    CancelReason.REFUND: "возврат оплаты",
+}
+
+ADMIN_ROLE_LABELS: dict[AdminRole, str] = {
+    AdminRole.OWNER: "Владелица",
+    AdminRole.ASSEMBLER: "Сборщик",
+}
+
+RECEIPT_STATUS_LABELS: dict[ReceiptStatus, str] = {
+    ReceiptStatus.PENDING: "Ожидает регистрации",
+    ReceiptStatus.REGISTERED: "Зарегистрирован",
+    ReceiptStatus.ANNULLED: "Аннулирован",
+    ReceiptStatus.FAILED: "Ошибка регистрации",
+}
+
+RECEIPT_PROVIDER_LABELS: dict[ReceiptProvider, str] = {
+    ReceiptProvider.ROBOKASSA: "Робочеки",
+    ReceiptProvider.MANUAL: "Вручную в «Мой налог»",
+    ReceiptProvider.STUB: "Тестовый",
 }
 
 SHIPMENT_STATUS_LABELS: dict[ShipmentStatus, str] = {
@@ -78,6 +107,12 @@ ORDER_EVENT_LABELS: dict[OrderEventType, str] = {
     OrderEventType.EXPIRED: "Истёк срок оплаты",
     OrderEventType.NOTIFICATION_SENT: "Отправлено уведомление клиенту",
     OrderEventType.NOTIFICATION_FAILED: "Уведомление не доставлено",
+    OrderEventType.REVIVED: "Оплата пришла после автоотмены — заказ возвращён",
+    OrderEventType.PAYMENT_AFTER_CANCEL: "⚠️ Оплата по отменённому заказу — нужен возврат",
+    OrderEventType.RECEIPT_REGISTERED: "Чек зарегистрирован",
+    OrderEventType.RECEIPT_ANNULLED: "Чек аннулирован",
+    OrderEventType.REFUNDED: "Оплата возвращена",
+    OrderEventType.ARRIVED_AT_PICKUP: "Посылка в пункте выдачи",
 }
 
 #: Названия шаблонов уведомлений в админке: что это и когда уходит клиенту.
@@ -88,7 +123,15 @@ MESSAGE_TEMPLATE_LABELS: dict[MessageTemplateKey, tuple[str, str]] = {
     ),
     MessageTemplateKey.ORDER_PAID: (
         "Оплата получена",
-        "Подтверждение оплаты: заказ принят в работу, чек придёт от Робокассы.",
+        "Подтверждение оплаты: заказу присвоен номер, он принят в работу.",
+    ),
+    MessageTemplateKey.RECEIPT_ISSUED: (
+        "Чек сформирован",
+        "Когда чек зарегистрирован в «Мой налог» и у него есть ссылка.",
+    ),
+    MessageTemplateKey.ORDER_REFUNDED: (
+        "Оплата возвращена",
+        "Когда вы оформили возврат по заказу.",
     ),
     MessageTemplateKey.STATUS_ASSEMBLING: (
         "Заказ собирается",
@@ -108,7 +151,8 @@ MESSAGE_TEMPLATE_LABELS: dict[MessageTemplateKey, tuple[str, str]] = {
     ),
     MessageTemplateKey.ARRIVED_AT_PICKUP: (
         "Посылка в пункте выдачи",
-        "Когда служба сообщила, что посылка прибыла в выбранный клиентом ПВЗ.",
+        "Когда посылка прибыла в выбранный клиентом ПВЗ: по данным службы "
+        "или по кнопке «Прибыл в ПВЗ» в карточке заказа.",
     ),
     MessageTemplateKey.STATUS_COMPLETED: (
         "Заказ получен",
@@ -162,3 +206,33 @@ def order_event_label(event_type: str) -> str:
         return ORDER_EVENT_LABELS[OrderEventType(event_type)]
     except ValueError:
         return event_type
+
+
+def cancel_reason_label(code: str | None) -> str:
+    if not code:
+        return ""
+    try:
+        return CANCEL_REASON_LABELS[CancelReason(code)]
+    except ValueError:
+        return code
+
+
+def admin_role_label(code: str) -> str:
+    try:
+        return ADMIN_ROLE_LABELS[AdminRole(code)]
+    except ValueError:
+        return code
+
+
+def receipt_status_label(code: str) -> str:
+    try:
+        return RECEIPT_STATUS_LABELS[ReceiptStatus(code)]
+    except ValueError:
+        return code
+
+
+def receipt_provider_label(code: str) -> str:
+    try:
+        return RECEIPT_PROVIDER_LABELS[ReceiptProvider(code)]
+    except ValueError:
+        return code

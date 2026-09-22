@@ -1,4 +1,8 @@
-"""«Мои заказы»: список, карточка с лентой этапов, оплата и отмена."""
+"""«Мои заказы»: список, карточка с лентой этапов, чек, оплата и отмена.
+
+Сообщения с кнопками «Оплатить» / «Отменить» запоминаются у заказа: когда его
+оплатят или отменят, кнопки снимет фоновая задача.
+"""
 
 from __future__ import annotations
 
@@ -9,24 +13,29 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from bot import ui
 from bot.callbacks import OrderCB
 from bot.keyboards.common import BTN_MY_ORDERS, main_menu
 from core.clock import format_date, format_datetime
-from core.enums import OrderStatus, ShipmentStatus
+from core.enums import CancelReason, OrderStatus, ReceiptStatus
 from core.errors import DomainError
 from core.labels import order_status_label
-from core.models import Customer, Order, Shipment
+from core.models import Customer, Order, OrderItem, Receipt, Shipment
 from core.money import format_rubles
 from core.services import notifications, orders, payments
 
 router = Router(name="my_orders")
 
+#: Условный этап «В пункте выдачи»: это не статус заказа, а отметка arrived_at.
+ARRIVED_STEP = "arrived"
+
 #: Лента этапов в карточке заказа — то, что видит клиент.
-PROGRESS_STEPS: tuple[tuple[OrderStatus, str], ...] = (
-    (OrderStatus.QUEUED, "Оплачен и в очереди"),
+PROGRESS_STEPS: tuple[tuple[OrderStatus | str, str], ...] = (
+    (OrderStatus.QUEUED, "Оплачен и принят в работу"),
     (OrderStatus.ASSEMBLING, "Собирается"),
-    (OrderStatus.READY, "Готов"),
+    (OrderStatus.READY, "Готов к отправке"),
     (OrderStatus.SHIPPED, "Передан в доставку"),
+    (ARRIVED_STEP, "Доставлен в пункт выдачи"),
     (OrderStatus.COMPLETED, "Получен"),
 )
 
@@ -38,7 +47,9 @@ ORDERS_LIMIT = 10
 async def list_orders(message: Message, session: AsyncSession, customer: Customer) -> None:
     result = await session.scalars(
         select(Order)
-        .options(selectinload(Order.items), selectinload(Order.addons))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.addons), selectinload(Order.addons)
+        )
         .where(Order.customer_id == customer.id, Order.status != OrderStatus.DRAFT)
         .order_by(Order.created_at.desc())
         .limit(ORDERS_LIMIT),
@@ -55,12 +66,10 @@ async def list_orders(message: Message, session: AsyncSession, customer: Custome
     builder = InlineKeyboardBuilder()
     lines = ["<b>📦 Ваши заказы</b>", ""]
     for order in found:
-        lines.append(
-            f"{order.display_number} · {order_status_label(order.status)} · "
-            f"{format_rubles(order.total_kopecks)}",
-        )
+        label = _status_label(order)
+        lines.append(f"{_title(order)} · {label}")
         builder.button(
-            text=f"{order.display_number} — {order_status_label(order.status)}",
+            text=f"{_title(order)} — {label}",
             callback_data=OrderCB(order_id=order.id, action="open").pack(),
         )
     builder.adjust(1)
@@ -87,10 +96,27 @@ async def open_order(
         .order_by(Shipment.created_at.desc())
         .limit(1),
     )
-    text = _order_card(order, shipment)
+    receipt = await session.scalar(
+        select(Receipt)
+        .where(Receipt.order_id == order.id, Receipt.status == ReceiptStatus.REGISTERED)
+        .order_by(Receipt.created_at.desc())
+        .limit(1),
+    )
+    text = _order_card(order, shipment, receipt)
     keyboard = await _order_keyboard(session, order)
     if callback.message is not None:
-        await callback.message.answer(text, reply_markup=keyboard)
+        sent = await callback.message.answer(
+            text,
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+        if keyboard is not None:
+            orders.remember_bot_message(
+                order,
+                chat_id=sent.chat.id,
+                message_id=sent.message_id,
+                text=text,
+            )
 
 
 @router.callback_query(OrderCB.filter(F.action == "pay"))
@@ -104,6 +130,7 @@ async def pay_order(
     order = await _get_own_order(session, callback_data.order_id, customer)
     if order is None or order.status != OrderStatus.WAITING_PAYMENT:
         await callback.answer("Этот заказ уже нельзя оплатить", show_alert=True)
+        await _strip(callback)
         return
 
     try:
@@ -116,9 +143,13 @@ async def pay_order(
     builder = InlineKeyboardBuilder()
     builder.button(text="💳 Оплатить", url=payments.payment_url(payment))
     if callback.message is not None:
-        await callback.message.answer(
-            f"Заказ {order.display_number} на {format_rubles(order.total_kopecks)}.",
-            reply_markup=builder.as_markup(),
+        text = f"Заказ {order.display_number}."
+        sent = await callback.message.answer(text, reply_markup=builder.as_markup())
+        orders.remember_bot_message(
+            order,
+            chat_id=sent.chat.id,
+            message_id=sent.message_id,
+            text=text,
         )
 
 
@@ -136,23 +167,47 @@ async def cancel_order(
         return
     if order.status != OrderStatus.WAITING_PAYMENT:
         await callback.answer(
-            "Оплаченный заказ отменяем вручную — напишите нам, пожалуйста.",
+            "Оплаченный заказ отменяем вручную — напишите нам, пожалуйста."
+            if order.paid_at
+            else "Этот заказ уже отменён.",
             show_alert=True,
         )
+        await _strip(callback)
         return
 
-    await orders.cancel(session, order, actor=orders.ACTOR_BOT, reason="отменён клиентом")
+    await orders.cancel(
+        session,
+        order,
+        reason=CancelReason.CUSTOMER,
+        actor=orders.ACTOR_BOT,
+        comment="отменён клиентом",
+    )
     await callback.answer("Заказ отменён")
+    await ui.mark_choice(callback.message, "✖️ Заказ отменён")
+
+
+async def _strip(callback: CallbackQuery) -> None:
+    """Снять кнопки с сообщения, по которому нажали: по ним больше нечего делать."""
     if callback.message is not None:
-        await callback.message.answer(
-            f"Заказ {order.display_number} отменён.",
-            reply_markup=main_menu(),
-        )
+        await ui.strip_buttons(callback.bot, callback.message.chat.id, callback.message.message_id)
 
 
-def _order_card(order: Order, shipment: Shipment | None) -> str:
+def _title(order: Order) -> str:
+    """«Заказ EM-1025», а до оплаты — «Заказ на 1 700 ₽»."""
+    return f"Заказ {order.display_number}"
+
+
+def _status_label(order: Order) -> str:
+    if order.refunded_at is not None:
+        return "оплата возвращена"
+    if order.status == OrderStatus.SHIPPED and order.arrived_at is not None:
+        return "в пункте выдачи"
+    return order_status_label(order.status).lower()
+
+
+def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None) -> str:
     lines = [
-        f"<b>Заказ {order.display_number}</b>",
+        f"<b>{_title(order)}</b>",
         f"от {format_datetime(order.created_at)}",
         "",
         notifications.describe_items(order),
@@ -165,7 +220,7 @@ def _order_card(order: Order, shipment: Shipment | None) -> str:
         lines.append(f"Пункт выдачи: {snapshot.get('address', '')}")
 
     if order.status == OrderStatus.CANCELLED:
-        lines.extend(["", "Статус: отменён"])
+        lines.extend(["", f"Статус: {_status_label(order)}"])
         return "\n".join(lines)
     if order.status == OrderStatus.WAITING_PAYMENT:
         lines.extend(["", "Ждём оплату."])
@@ -178,25 +233,27 @@ def _order_card(order: Order, shipment: Shipment | None) -> str:
         lines.append(f"\nПланируем собрать к {format_date(order.promised_ready_date)}")
     if shipment is not None and shipment.track_number:
         lines.append(f"\nТрек-номер: <code>{shipment.track_number}</code>")
-        if shipment.status == ShipmentStatus.ARRIVED:
-            lines.append("Посылка уже в пункте выдачи.")
+    if receipt is not None and receipt.url:
+        lines.append(f'\n🧾 <a href="{receipt.url}">Чек об оплате</a>')
     return "\n".join(lines)
 
 
 def _progress(order: Order) -> str:
     """Лента этапов: пройденные — галочкой, текущий — стрелкой."""
-    current = OrderStatus(order.status)
+    current: OrderStatus | str = OrderStatus(order.status)
+    if current == OrderStatus.SHIPPED and order.arrived_at is not None:
+        current = ARRIVED_STEP
     order_of = {status: index for index, (status, _) in enumerate(PROGRESS_STEPS)}
     position = order_of.get(current, -1)
 
     parts = []
     for index, (_, label) in enumerate(PROGRESS_STEPS):
-        if index < position:
+        if index < position or (index == position and current == OrderStatus.COMPLETED):
             parts.append(f"✅ {label}")
         elif index == position:
             parts.append(f"🔄 <b>{label}</b>")
         else:
-            parts.append(label)
+            parts.append(f"▫️ {label}")
     return "\n".join(parts)
 
 
@@ -230,6 +287,6 @@ async def _get_own_order(
     """Заказ клиента. Чужой заказ по угаданному id открыть нельзя."""
     return await session.scalar(
         select(Order)
-        .options(selectinload(Order.items), selectinload(Order.addons))
+        .options(*orders.ORDER_LOAD_OPTIONS)
         .where(Order.id == order_id, Order.customer_id == customer.id),
     )

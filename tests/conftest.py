@@ -58,8 +58,8 @@ def add_variant(
         is_active=is_active,
         sort_order=sort_order,
     )
+    # Обратная связь сама добавит вариант в product.variants — второй append дал бы дубль.
     variant.product = product
-    product.variants.append(variant)
     return variant
 
 

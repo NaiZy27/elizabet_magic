@@ -8,11 +8,12 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, or_, select
 
-from core.enums import DeliveryProviderCode, ProviderEnvironment
 from core.config import get_settings
+from core.db import folded
+from core.enums import DeliveryProviderCode, ProviderEnvironment
 from core.models import DeliveryProvider, PickupPoint
 from core.money import parse_rubles
-from web.security import CurrentAdmin, DbSession, csrf_token, verify_csrf
+from web.security import CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
 
 router = APIRouter(tags=["admin"])
@@ -21,7 +22,7 @@ PAGE_SIZE = 30
 
 
 @router.get("/delivery")
-async def delivery_page(request: Request, session: DbSession, admin: CurrentAdmin):
+async def delivery_page(request: Request, session: DbSession, admin: CurrentOwner):
     providers = await session.scalars(select(DeliveryProvider).order_by(DeliveryProvider.id))
     providers = list(providers)
 
@@ -55,7 +56,7 @@ async def save_provider(
     request: Request,
     provider_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     fallback_price: Annotated[str, Form()],
     is_enabled: Annotated[bool, Form()] = False,
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
@@ -83,7 +84,7 @@ async def save_provider(
 async def pickup_points_page(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     q: Annotated[str, Query()] = "",
     provider: Annotated[str, Query()] = "",
     only_active: Annotated[bool, Query()] = True,
@@ -96,9 +97,9 @@ async def pickup_points_page(
         pattern = f"%{query.lower()}%"
         statement = statement.where(
             or_(
-                func.lower(PickupPoint.city).like(pattern),
-                func.lower(PickupPoint.address).like(pattern),
-                func.lower(PickupPoint.external_id).like(pattern),
+                folded(PickupPoint.city).like(pattern),
+                folded(PickupPoint.address).like(pattern),
+                folded(PickupPoint.external_id).like(pattern),
             ),
         )
     if provider:

@@ -15,6 +15,7 @@ from web.routes.admin import (
     orders,
     settings,
     stats,
+    users,
 )
 
 router = APIRouter()
@@ -28,6 +29,7 @@ admin.include_router(delivery.router)
 admin.include_router(customers.router)
 admin.include_router(stats.router)
 admin.include_router(settings.router)
+admin.include_router(users.router)
 
 router.include_router(admin)
 router.include_router(board.api_router, prefix="/api")

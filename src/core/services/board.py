@@ -22,7 +22,7 @@ from core.clock import today_moscow
 from core.enums import BOARD_STATUSES, QUEUE_STATUSES, OrderStatus
 from core.errors import ConflictError
 from core.labels import ORDER_STATUS_LABELS
-from core.models import Order
+from core.models import Order, OrderItem
 from core.workdays import (
     QueueEntry,
     WorkingCalendar,
@@ -91,7 +91,11 @@ async def load_board(
     day = today or today_moscow()
     result = await session.scalars(
         select(Order)
-        .options(selectinload(Order.items), selectinload(Order.addons), selectinload(Order.customer))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.addons),
+            selectinload(Order.addons),
+            selectinload(Order.customer),
+        )
         .where(Order.status.in_(BOARD_STATUSES))
         .order_by(Order.status_changed_at.desc()),
     )
@@ -121,6 +125,7 @@ async def load_board(
     revenue = await session.scalar(
         select(func.coalesce(func.sum(Order.total_kopecks), 0)).where(
             Order.paid_at.is_not(None),
+            Order.refunded_at.is_(None),
             func.date(func.timezone("Europe/Moscow", Order.paid_at)) >= month_start,
         ),
     )
@@ -143,9 +148,7 @@ async def load_queue(session: AsyncSession, *, for_update: bool = False) -> list
     постановка оплаченного заказа в конец не должны выполняться параллельно.
     """
     statement = (
-        select(Order)
-        .where(Order.status.in_(tuple(QUEUE_STATUSES)))
-        .order_by(Order.queue_position)
+        select(Order).where(Order.status.in_(tuple(QUEUE_STATUSES))).order_by(Order.queue_position)
     )
     if for_update:
         statement = statement.with_for_update()
@@ -197,9 +200,7 @@ async def remove_from_queue(session: AsyncSession, order: Order) -> None:
         return
     queue = await load_queue(session, for_update=True)
     order.queue_position = None
-    remaining = [
-        item for item in queue if item.id != order.id and item.queue_position is not None
-    ]
+    remaining = [item for item in queue if item.id != order.id and item.queue_position is not None]
     _renumber(remaining)
     await session.flush()
 
