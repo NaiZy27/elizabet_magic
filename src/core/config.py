@@ -24,6 +24,8 @@ _BASE_CONFIG = SettingsConfigDict(
     env_file_encoding="utf-8",
     extra="ignore",
     case_sensitive=False,
+    # «CDEK_TARIFF_CODE=» в .env значит «не задано», а не пустая строка вместо числа.
+    env_ignore_empty=True,
 )
 
 # Номера баз Redis. Разнесены, чтобы очистка кэша не сносила FSM и очередь задач.
@@ -172,7 +174,9 @@ class Settings(BaseSettings):
             if not filled
         ]
         if missing:
-            raise ValueError("Не заполнены обязательные переменные окружения: " + ", ".join(missing))
+            raise ValueError(
+                "Не заполнены обязательные переменные окружения: " + ", ".join(missing)
+            )
         return self
 
     @property

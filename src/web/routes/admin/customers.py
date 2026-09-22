@@ -8,9 +8,10 @@ from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
+from core.db import folded
 from core.enums import OrderStatus
 from core.models import Customer, Order, Payment
-from web.security import CurrentAdmin, DbSession, csrf_token
+from web.security import CurrentOwner, DbSession, csrf_token
 from web.templating import render
 
 router = APIRouter(tags=["admin"])
@@ -22,7 +23,7 @@ PAGE_SIZE = 30
 async def customers_page(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     q: Annotated[str, Query()] = "",
     page: Annotated[int, Query(ge=1)] = 1,
 ):
@@ -54,8 +55,8 @@ async def customers_page(
     if query:
         pattern = f"%{query.lower()}%"
         conditions = [
-            func.lower(Customer.full_name).like(pattern),
-            func.lower(Customer.username).like(pattern),
+            folded(Customer.full_name).like(pattern),
+            folded(Customer.username).like(pattern),
             Customer.phone.like(pattern),
         ]
         if query.isdigit():
@@ -65,9 +66,7 @@ async def customers_page(
     total = await session.scalar(
         select(func.count()).select_from(statement.order_by(None).subquery()),
     )
-    rows = (
-        await session.execute(statement.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE))
-    ).all()
+    rows = (await session.execute(statement.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE))).all()
 
     return render(
         request,
@@ -88,7 +87,7 @@ async def customers_page(
 async def payments_page(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     payment_status: Annotated[str, Query(alias="status")] = "",
     page: Annotated[int, Query(ge=1)] = 1,
 ):

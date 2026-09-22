@@ -6,14 +6,12 @@ import pytest
 
 from core.errors import ValidationError
 from core.services.catalog import (
-    addon_quantity,
     compute_production_days,
     item_name,
     largest_variant,
     price_for_spoons,
     spoon_options,
 )
-from core.enums import AddonChargeMode
 from tests.conftest import add_variant, make_addon, make_product
 
 
@@ -85,16 +83,26 @@ def test_item_name_snapshot(small_box):
     assert item_name(small_box, 5) == "Маленький бокс — 5 ложечек"
 
 
-def test_production_days_takes_longest_box_plus_addons():
+def test_production_days_takes_longest_box():
     small = make_product(production_days=1)
     big = make_product(name="Большой бокс", production_days=3)
+
+    assert compute_production_days([(small, [])]) == 1
+    assert compute_production_days([(small, []), (big, [])]) == 3
+
+
+def test_video_days_are_counted_for_each_box():
+    small = make_product(production_days=1)
     video = make_addon()
 
-    assert compute_production_days([small], []) == 1
-    assert compute_production_days([small], [video]) == 2
-    assert compute_production_days([small, big], [video]) == 4
+    # Один бокс с видео — плюс день.
+    assert compute_production_days([(small, [video])]) == 2
+    # Видео на двух боксах из трёх — плюс два дня.
+    assert compute_production_days([(small, [video]), (small, [video]), (small, [])]) == 3
 
 
-def test_addon_quantity_depends_on_charge_mode():
-    assert addon_quantity(AddonChargeMode.PER_BOX, box_count=3) == 3
-    assert addon_quantity(AddonChargeMode.PER_ORDER, box_count=3) == 1
+def test_order_level_addon_counted_once():
+    small = make_product(production_days=1)
+    wrapping = make_addon(code="wrap", extra_production_days=1)
+
+    assert compute_production_days([(small, []), (small, [])], [wrapping]) == 2

@@ -18,13 +18,15 @@ from core.schemas.settings import (
     ContactsSettings,
     FaqItem,
     FaqSettings,
+    IntakeSettings,
     OrderRulesSettings,
     SettingKey,
     WorkingCalendarSettings,
 )
+from core.services import intake as intake_service
 from core.services import notifications
 from core.services import settings as settings_service
-from web.security import CurrentAdmin, DbSession, csrf_token, verify_csrf
+from web.security import CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
 
 router = APIRouter(prefix="/settings", tags=["admin"])
@@ -41,11 +43,8 @@ WEEKDAY_NAMES = [
 
 
 @router.get("")
-async def settings_page(request: Request, session: DbSession, admin: CurrentAdmin):
-    stored = {
-        template.key: template
-        for template in await session.scalars(select(MessageTemplate))
-    }
+async def settings_page(request: Request, session: DbSession, admin: CurrentOwner):
+    stored = {template.key: template for template in await session.scalars(select(MessageTemplate))}
     templates = []
     for key in MessageTemplateKey:
         title, when = MESSAGE_TEMPLATE_LABELS[key]
@@ -75,6 +74,9 @@ async def settings_page(request: Request, session: DbSession, admin: CurrentAdmi
             "calendar": calendar,
             "weekday_names": list(enumerate(WEEKDAY_NAMES)),
             "rules": await settings_service.get_order_rules(session),
+            "intake": await settings_service.get_intake(session),
+            "intake_state": await intake_service.check(session),
+            "intake_load": await intake_service.current_load(session),
             "contacts": await settings_service.get_contacts(session),
             "faq": await settings_service.get_faq(session),
             "bot_texts": await settings_service.get_bot_texts(session),
@@ -89,7 +91,7 @@ async def save_template(
     request: Request,
     key: str,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     text: Annotated[str, Form()],
     is_enabled: Annotated[bool, Form()] = False,
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
@@ -129,7 +131,7 @@ async def save_template(
 async def save_calendar(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     weekdays: Annotated[list[int], Form()] = [],  # noqa: B006 — так FastAPI читает чекбоксы
     holidays: Annotated[str, Form()] = "",
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
@@ -167,16 +169,75 @@ async def save_calendar(
 async def save_rules(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     unpaid_ttl_minutes: Annotated[int, Form(ge=5, le=10080)],
     draft_ttl_days: Annotated[int, Form(ge=1, le=365)],
+    max_boxes_per_order: Annotated[int, Form(ge=1, le=50)] = 10,
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
     verify_csrf(request, csrf)
     await settings_service.write_setting(
         session,
         SettingKey.ORDER_RULES,
-        OrderRulesSettings(unpaid_ttl_minutes=unpaid_ttl_minutes, draft_ttl_days=draft_ttl_days),
+        OrderRulesSettings(
+            unpaid_ttl_minutes=unpaid_ttl_minutes,
+            draft_ttl_days=draft_ttl_days,
+            max_boxes_per_order=max_boxes_per_order,
+        ),
+    )
+    return _back()
+
+
+@router.post("/intake")
+async def save_intake(
+    request: Request,
+    session: DbSession,
+    admin: CurrentOwner,
+    pause_message: Annotated[str, Form()],
+    accepting_orders: Annotated[bool, Form()] = False,
+    resume_on: Annotated[str, Form()] = "",
+    queue_limit: Annotated[str, Form()] = "",
+    extra_lead_days: Annotated[int, Form(ge=0, le=60)] = 0,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    """Приём заказов: пауза, лимит одновременно в работе и запас по срокам."""
+    verify_csrf(request, csrf)
+
+    resume_date: dt.date | None = None
+    if resume_on.strip():
+        try:
+            resume_date = dt.date.fromisoformat(resume_on.strip())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Дата открытия приёма указана неверно",
+            ) from None
+
+    limit: int | None = None
+    if queue_limit.strip():
+        if not queue_limit.strip().isdigit() or int(queue_limit) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Лимит — целое число больше нуля, или оставьте поле пустым",
+            )
+        limit = int(queue_limit)
+
+    if not pause_message.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Напишите, что показать клиентам, пока приём закрыт",
+        )
+
+    await settings_service.write_setting(
+        session,
+        SettingKey.INTAKE,
+        IntakeSettings(
+            accepting_orders=accepting_orders,
+            pause_message=pause_message.strip(),
+            resume_on=resume_date,
+            queue_limit=limit,
+            extra_lead_days=extra_lead_days,
+        ),
     )
     return _back()
 
@@ -185,7 +246,7 @@ async def save_rules(
 async def save_contacts(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     telegram: Annotated[str, Form()] = "",
     phone: Annotated[str, Form()] = "",
     email: Annotated[str, Form()] = "",
@@ -212,7 +273,7 @@ async def save_contacts(
 async def save_faq(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     questions: Annotated[list[str], Form()] = [],  # noqa: B006 — списки полей формы
     answers: Annotated[list[str], Form()] = [],  # noqa: B006
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
@@ -232,7 +293,7 @@ async def save_faq(
 async def save_bot_texts(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     greeting: Annotated[str, Form()],
     wishes_disclaimer: Annotated[str, Form()],
     consent_text: Annotated[str, Form()],

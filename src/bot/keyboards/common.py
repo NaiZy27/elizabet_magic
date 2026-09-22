@@ -25,6 +25,11 @@ BTN_SEND_PHONE = "📱 Отправить телефон"
 BTN_SEND_LOCATION = "📍 Отправить геопозицию"
 BTN_CANCEL = "✖️ Отменить оформление"
 
+#: Нажатия кнопок меню — не ответ на шаг оформления: их текстовые шаги пропускают.
+MENU_BUTTONS = frozenset(
+    {BTN_ORDER, BTN_MY_ORDERS, BTN_PRICES, BTN_DELIVERY, BTN_FAQ, BTN_CONTACTS, BTN_CANCEL},
+)
+
 
 def main_menu() -> ReplyKeyboardMarkup:
     """Постоянная клавиатура под полем ввода."""

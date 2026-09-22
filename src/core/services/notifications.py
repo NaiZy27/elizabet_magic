@@ -21,11 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.clock import format_date, format_datetime
 from core.db import after_commit
-from core.enums import VIDEO_ADDON_CODE, MessageTemplateKey
+from core.enums import MessageTemplateKey
 from core.errors import ValidationError
-from core.models import MessageTemplate, Order
+from core.models import MessageTemplate, Order, OrderItem
 from core.money import format_rubles
-from core.text import spoons_phrase
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +32,16 @@ _environment = SandboxedEnvironment(undefined=StrictUndefined, autoescape=False)
 
 #: Плейсхолдеры, доступные в любом шаблоне. Подсказка к ним показывается в админке.
 PLACEHOLDERS: dict[str, str] = {
-    "order_number": "Номер заказа, например EM-1025",
+    "order_number": "Номер заказа, например EM-1025. До оплаты — «на 1 700 ₽»",
     "customer_name": "Имя клиента",
+    "email": "Email, на который уходит чек",
     "items": "Состав заказа списком",
     "box_count": "Сколько боксов в заказе",
     "subtotal": "Стоимость боксов и услуг",
     "delivery": "Стоимость доставки",
     "total": "Итоговая сумма",
     "has_video": "Заказано ли видео сборки (да/нет)",
+    "receipt_url": "Ссылка на чек в «Мой налог»",
     "ready_date": "Дата готовности, обещанная клиенту",
     "delivery_service": "Служба доставки",
     "pickup_name": "Название пункта выдачи",
@@ -59,12 +60,20 @@ DEFAULT_TEMPLATES: dict[MessageTemplateKey, str] = {
         "{{ items }}\n\n"
         "Доставка: {{ delivery }}\n"
         "Итого: {{ total }}\n\n"
-        "Чтобы мы начали сборку, оплатите заказ — ссылка действует до {{ pay_deadline }}."
+        "Чтобы мы начали сборку, оплатите заказ — ссылка действует до {{ pay_deadline }}.\n"
+        "Номер заказа пришлём сразу после оплаты."
     ),
     MessageTemplateKey.ORDER_PAID: (
-        "Оплата получена, заказ {{ order_number }} принят в работу 💗\n\n"
+        "Оплата получена! Ваш заказ №{{ order_number }} принят 💗\n\n"
         "Планируем собрать к {{ ready_date }} и сразу передадим в доставку.\n"
-        "Чек придёт на указанный вами телефон или email."
+        "Чек придёт на {{ email }}."
+    ),
+    MessageTemplateKey.RECEIPT_ISSUED: (
+        "Чек по заказу {{ order_number }} сформирован: {{ receipt_url }}"
+    ),
+    MessageTemplateKey.ORDER_REFUNDED: (
+        "Мы вернули оплату по заказу {{ order_number }} — {{ total }}.\n"
+        "Деньги придут на карту в течение нескольких дней, чек аннулирован."
     ),
     MessageTemplateKey.STATUS_ASSEMBLING: (
         "Собираем ваш бокс 🎀\nЗаказ {{ order_number }} уже в работе."
@@ -107,12 +116,14 @@ def sample_context() -> dict[str, Any]:
     return {
         "order_number": "EM-1025",
         "customer_name": "Анна",
-        "items": "Маленький бокс — 3 ложечки × 2\nВидео сборки",
+        "email": "anna@mail.ru",
+        "items": ("1. Маленький бокс — 3 ложечки + видео сборки\n2. Маленький бокс — 2 ложечки"),
         "box_count": 2,
-        "subtotal": format_rubles(270000),
+        "subtotal": format_rubles(240000),
         "delivery": format_rubles(30000),
-        "total": format_rubles(300000),
+        "total": format_rubles(270000),
         "has_video": "да",
+        "receipt_url": "https://lknpd.nalog.ru/api/v1/receipt/000000000000/200abc/print",
         "ready_date": "22.09.2026",
         "delivery_service": "СДЭК",
         "pickup_name": "Пункт выдачи на Ленина",
@@ -143,8 +154,8 @@ def validate_template(text: str) -> str:
 
 
 def has_video(order: Order) -> bool:
-    """Заказано ли видео сборки — по снимку кода услуги в заказе."""
-    return any(addon.code_snapshot == VIDEO_ADDON_CODE for addon in order.addons)
+    """Заказано ли видео сборки хотя бы для одного бокса."""
+    return order.video_box_count > 0
 
 
 def build_context(order: Order, **extra: Any) -> dict[str, Any]:
@@ -153,12 +164,14 @@ def build_context(order: Order, **extra: Any) -> dict[str, Any]:
     context: dict[str, Any] = {
         "order_number": order.display_number,
         "customer_name": order.recipient_name or "",
+        "email": order.recipient_email or "ваш email",
         "items": describe_items(order),
-        "box_count": sum(item.quantity for item in order.items),
+        "box_count": order.box_count,
         "subtotal": format_rubles(order.subtotal_kopecks),
         "delivery": format_rubles(order.delivery_kopecks),
         "total": format_rubles(order.total_kopecks),
         "has_video": "да" if has_video(order) else "нет",
+        "receipt_url": "",
         "ready_date": (
             format_date(order.promised_ready_date) if order.promised_ready_date else "уточняется"
         ),
@@ -175,18 +188,24 @@ def build_context(order: Order, **extra: Any) -> dict[str, Any]:
     return context
 
 
+def describe_item(item: OrderItem) -> str:
+    """Один бокс строкой: «Маленький бокс — 3 ложечки + видео сборки»."""
+    text = item.name_snapshot
+    if item.quantity > 1:
+        text = f"{text} × {item.quantity}"
+    for addon in item.addons:
+        text = f"{text} + {addon.name_snapshot.lower()}"
+    return text
+
+
 def describe_items(order: Order) -> str:
-    """Состав заказа строками: «Маленький бокс — 3 ложечки × 2»."""
-    lines = [
-        f"{item.name_snapshot} × {item.quantity}" if item.quantity > 1 else item.name_snapshot
-        for item in order.items
-    ]
-    lines.extend(
-        f"{addon.name_snapshot} × {addon.quantity}"
-        if addon.quantity > 1
-        else addon.name_snapshot
-        for addon in order.addons
-    )
+    """Состав заказа строками. Если боксов несколько — с номерами, как в корзине."""
+    items = list(order.items)
+    if len(items) == 1:
+        lines = [describe_item(items[0])]
+    else:
+        lines = [f"{index}. {describe_item(item)}" for index, item in enumerate(items, start=1)]
+    lines.extend(addon.name_snapshot for addon in order.order_addons)
     return "\n".join(lines)
 
 
@@ -240,6 +259,31 @@ def schedule_owner_notification(session: AsyncSession, order: Order) -> None:
         from worker.tasks.notify import notify_owner
 
         await notify_owner.kiq(order_id=order_id)
+
+    after_commit(session, _enqueue)
+
+
+def schedule_owner_text(session: AsyncSession, text: str) -> None:
+    """Служебное сообщение владелице — о том, что требует её внимания."""
+
+    async def _enqueue() -> None:
+        from worker.tasks.notify import notify_owner_text
+
+        await notify_owner_text.kiq(text=text)
+
+    after_commit(session, _enqueue)
+
+
+def schedule_strip_buttons(session: AsyncSession, order: Order) -> None:
+    """Снять кнопки «Оплатить» / «Отменить» со всех сообщений бота по заказу."""
+    if not order.bot_messages:
+        return
+    order_id = order.id
+
+    async def _enqueue() -> None:
+        from worker.tasks.notify import strip_order_buttons
+
+        await strip_order_buttons.kiq(order_id=order_id)
 
     after_commit(session, _enqueue)
 

@@ -72,3 +72,24 @@ def test_phrases():
 def test_truncate():
     assert truncate("Короткий", 20) == "Короткий"
     assert truncate("Очень длинное название бокса", 12) == "Очень длинн…"
+
+
+def test_normalize_search_folds_case_and_yo():
+    from core.text import normalize_search
+
+    assert normalize_search("г. Москва, ул. Берёзовая аллея, 19к1") == (
+        "г москва ул березовая аллея 19к1"
+    )
+
+
+def test_search_words_drop_address_noise():
+    from core.text import search_words
+
+    assert search_words("москва, ул березовая аллея 19к1") == [
+        "москва",
+        "березовая",
+        "аллея",
+        "19к1",
+    ]
+    assert search_words("г. Казань, д. 5") == ["казань", "5"]
+    assert search_words("  ,, ") == []

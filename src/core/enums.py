@@ -66,6 +66,46 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
 }
 
 
+class CancelReason(StrEnum):
+    """Почему заказ отменён. От причины зависит, можно ли его «воскресить»."""
+
+    #: Не оплатили вовремя — если деньги всё же придут, заказ возвращается в работу.
+    EXPIRED = "expired"
+    CUSTOMER = "customer"
+    ADMIN = "admin"
+    REFUND = "refund"
+
+
+class AdminRole(StrEnum):
+    """Роль в панели."""
+
+    #: Владелица: видит и меняет всё.
+    OWNER = "owner"
+    #: Сборщик: доска, состав и пожелания, этапы и заметки. Без денег и настроек.
+    ASSEMBLER = "assembler"
+
+
+class ReceiptStatus(StrEnum):
+    """Чек самозанятого в «Мой налог»."""
+
+    #: Платёж прошёл, чек ещё не зарегистрирован.
+    PENDING = "pending"
+    REGISTERED = "registered"
+    #: Чек аннулирован — так в НПД оформляется возврат.
+    ANNULLED = "annulled"
+    FAILED = "failed"
+
+
+class ReceiptProvider(StrEnum):
+    """Кто зарегистрировал чек."""
+
+    #: Робочеки СМЗ — Робокасса сама передаёт продажу в «Мой налог».
+    ROBOKASSA = "robokassa"
+    #: Внесён руками в «Мой налог», ссылка вставлена в панели.
+    MANUAL = "manual"
+    STUB = "stub"
+
+
 class PaymentStatus(StrEnum):
     """Состояние попытки оплаты."""
 
@@ -147,6 +187,14 @@ class OrderEventType(StrEnum):
     EXPIRED = "expired"
     NOTIFICATION_SENT = "notification_sent"
     NOTIFICATION_FAILED = "notification_failed"
+    #: Оплата пришла после автоотмены по сроку — заказ вернулся в работу.
+    REVIVED = "revived"
+    #: Оплата пришла по заказу, который вернуть нельзя: нужен возврат.
+    PAYMENT_AFTER_CANCEL = "payment_after_cancel"
+    RECEIPT_REGISTERED = "receipt_registered"
+    RECEIPT_ANNULLED = "receipt_annulled"
+    REFUNDED = "refunded"
+    ARRIVED_AT_PICKUP = "arrived_at_pickup"
 
 
 class MessageTemplateKey(StrEnum):
@@ -161,6 +209,8 @@ class MessageTemplateKey(StrEnum):
     ARRIVED_AT_PICKUP = "arrived_at_pickup"
     STATUS_COMPLETED = "status_completed"
     ORDER_CANCELLED = "order_cancelled"
+    RECEIPT_ISSUED = "receipt_issued"
+    ORDER_REFUNDED = "order_refunded"
 
 
 #: Какой шаблон уходит клиенту при переходе в статус. Для остальных статусов — ничего.

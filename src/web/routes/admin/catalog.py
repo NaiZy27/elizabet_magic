@@ -19,7 +19,7 @@ from core.enums import AddonChargeMode
 from core.models import Addon, Color, Product, ProductVariant
 from core.money import parse_rubles
 from core.services import catalog as catalog_service
-from web.security import CurrentAdmin, DbSession, csrf_token, verify_csrf
+from web.security import CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ MAX_PHOTO_BYTES = 10 * 1024 * 1024
 
 
 @router.get("")
-async def catalog_page(request: Request, session: DbSession, admin: CurrentAdmin):
+async def catalog_page(request: Request, session: DbSession, admin: CurrentOwner):
     products = await catalog_service.list_products_for_admin(session)
     addons = await session.scalars(select(Addon).order_by(Addon.sort_order, Addon.id))
     colors = await session.scalars(select(Color).order_by(Color.sort_order, Color.id))
@@ -51,7 +51,7 @@ async def catalog_page(request: Request, session: DbSession, admin: CurrentAdmin
 
 
 @router.get("/products/new")
-async def new_product(request: Request, session: DbSession, admin: CurrentAdmin):
+async def new_product(request: Request, session: DbSession, admin: CurrentOwner):
     return render(
         request,
         "admin/product_form.html",
@@ -64,7 +64,7 @@ async def edit_product(
     request: Request,
     product_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
 ):
     product = await _get_product(session, product_id)
     return render(
@@ -84,7 +84,7 @@ async def edit_product(
 async def save_product(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     name: Annotated[str, Form()],
     sku: Annotated[str, Form()],
     production_days: Annotated[int, Form(ge=1, le=60)],
@@ -133,7 +133,7 @@ async def upload_photo(
     request: Request,
     product_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     photo: Annotated[UploadFile, File()],
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
@@ -171,7 +171,7 @@ async def upload_photo(
             photo=BufferedInputFile(content, filename=photo.filename or "photo.jpg"),
             caption=f"Фото для бокса «{product.name}»",
         )
-    except Exception as error:  # noqa: BLE001 — показываем причину в интерфейсе
+    except Exception as error:
         logger.exception("Не удалось загрузить фото бокса")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -197,7 +197,7 @@ async def save_variant(
     request: Request,
     product_id: int,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     name: Annotated[str, Form()],
     sku: Annotated[str, Form()],
     spoon_count: Annotated[int, Form(ge=1, le=100)],
@@ -244,7 +244,7 @@ async def save_variant(
 async def save_addon(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     name: Annotated[str, Form()],
     code: Annotated[str, Form()],
     price: Annotated[str, Form()],
@@ -280,7 +280,7 @@ async def save_addon(
 async def save_color(
     request: Request,
     session: DbSession,
-    admin: CurrentAdmin,
+    admin: CurrentOwner,
     name: Annotated[str, Form()],
     color_id: Annotated[int, Form()] = 0,
     sort_order: Annotated[int, Form()] = 0,

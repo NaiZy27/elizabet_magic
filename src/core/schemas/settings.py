@@ -20,6 +20,7 @@ class SettingKey(StrEnum):
 
     WORKING_CALENDAR = "working_calendar"
     ORDER_RULES = "order_rules"
+    INTAKE = "intake"
     CONTACTS = "contacts"
     FAQ = "faq"
     BOT_TEXTS = "bot_texts"
@@ -61,6 +62,34 @@ class OrderRulesSettings(SettingsModel):
     unpaid_ttl_minutes: int = Field(default=60, gt=0, le=7 * 24 * 60)
     #: Сколько дней хранить заброшенные черновики.
     draft_ttl_days: int = Field(default=30, gt=0)
+    #: Сколько боксов можно положить в один заказ.
+    max_boxes_per_order: int = Field(default=10, ge=1, le=50)
+
+
+class IntakeSettings(SettingsModel):
+    """Приём заказов: пауза, лимит очереди и запас по срокам."""
+
+    #: Выключатель приёма — например, на время отпуска.
+    accepting_orders: bool = True
+    #: Что сказать клиенту, пока приём закрыт.
+    pause_message: str = (
+        "Сейчас мы не принимаем новые заказы — скоро вернёмся 💗\n"
+        "Следите за новостями в наших соцсетях."
+    )
+    #: С этого дня приём откроется сам. Пусто — откроется, только когда включат вручную.
+    resume_on: dt.date | None = None
+    #: Сколько заказов одновременно может быть в работе (оплаченные в очереди и на
+    #: сборке плюс ожидающие оплаты). Пусто — без ограничения.
+    queue_limit: int | None = Field(default=None, ge=1, le=1000)
+    #: Сколько рабочих дней прибавить к сроку, который называем клиенту, — запас,
+    #: когда владелица не успевает или хочет разгрузить неделю.
+    extra_lead_days: int = Field(default=0, ge=0, le=60)
+
+    def is_paused(self, today: dt.date) -> bool:
+        """Закрыт ли приём сегодня с учётом даты автооткрытия."""
+        if self.accepting_orders:
+            return False
+        return self.resume_on is None or today < self.resume_on
 
 
 class ContactsSettings(SettingsModel):
@@ -104,6 +133,7 @@ class BotTextsSettings(SettingsModel):
 SETTING_SCHEMAS: dict[SettingKey, type[SettingsModel]] = {
     SettingKey.WORKING_CALENDAR: WorkingCalendarSettings,
     SettingKey.ORDER_RULES: OrderRulesSettings,
+    SettingKey.INTAKE: IntakeSettings,
     SettingKey.CONTACTS: ContactsSettings,
     SettingKey.FAQ: FaqSettings,
     SettingKey.BOT_TEXTS: BotTextsSettings,

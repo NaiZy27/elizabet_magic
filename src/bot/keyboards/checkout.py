@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.callbacks import (
+    CartCB,
     ColorCB,
     ColorsDoneCB,
     OrderCB,
@@ -20,13 +21,13 @@ from bot.callbacks import (
     VideoCB,
 )
 from bot.keyboards.common import back_button, cancel_button, skip_button
-from core.models import Color, PickupPoint, Product
+from core.models import Color, OrderItem, PickupPoint, Product
 from core.money import format_rubles
 from core.services.delivery import PICKUP_POINTS_PAGE_SIZE
 from core.text import spoons_phrase, truncate
 
 
-def products(items: Sequence[tuple[Product, int]]) -> InlineKeyboardMarkup:
+def products(items: Sequence[tuple[Product, int]], *, back_to_cart: bool) -> InlineKeyboardMarkup:
     """Боксы с минимальной ценой на кнопке."""
     builder = InlineKeyboardBuilder()
     for product, min_price in items:
@@ -35,16 +36,19 @@ def products(items: Sequence[tuple[Product, int]]) -> InlineKeyboardMarkup:
             callback_data=ProductCB(product_id=product.id).pack(),
         )
     builder.adjust(1)
+    if back_to_cart:
+        builder.row(back_button("cart"))
     builder.row(cancel_button())
     return builder.as_markup()
 
 
-def spoons(options: Sequence[tuple[int, int]]) -> InlineKeyboardMarkup:
+def spoons(options: Sequence[tuple[int, int]], *, chosen: int | None) -> InlineKeyboardMarkup:
     """Количество ложечек с ценой: пары (сколько ложечек, цена в копейках)."""
     builder = InlineKeyboardBuilder()
     for count, price in options:
         builder.button(
-            text=f"{spoons_phrase(count)} — {format_rubles(price)}",
+            text=("✓ " if count == chosen else "")
+            + f"{spoons_phrase(count)} — {format_rubles(price)}",
             callback_data=SpoonCB(count=count).pack(),
         )
     builder.adjust(1)
@@ -74,7 +78,6 @@ def colors(
     *,
     kind: str,
     back_step: str,
-    skippable: bool = False,
 ) -> InlineKeyboardMarkup:
     """Мультивыбор цветов: отмеченные — с галочкой."""
     builder = InlineKeyboardBuilder()
@@ -86,23 +89,52 @@ def colors(
         )
     builder.adjust(2)
 
-    navigation = [back_button(back_step)]
-    if skippable:
-        navigation.append(skip_button(f"colors_{kind}"))
-    builder.row(*navigation)
+    builder.row(back_button(back_step), skip_button(f"colors_{kind}", "Не важно"))
     builder.row(
-        InlineKeyboardButton(text="Готово", callback_data=ColorsDoneCB(kind=kind).pack()),
+        InlineKeyboardButton(text="Готово →", callback_data=ColorsDoneCB(kind=kind).pack()),
     )
     return builder.as_markup()
 
 
-def comment(back_step: str = "colors_a") -> InlineKeyboardMarkup:
+def comment(*, has_current: bool) -> InlineKeyboardMarkup:
+    """Пожелания. При правке бокса «пропустить» означает «оставить как было»."""
     builder = InlineKeyboardBuilder()
-    builder.row(back_button(back_step), skip_button("comment"))
+    skip_text = "Оставить как есть" if has_current else "Без пожеланий"
+    builder.row(back_button("colors_a"), skip_button("comment", skip_text))
     return builder.as_markup()
 
 
-def pickup_search() -> InlineKeyboardMarkup:
+def cart(items: Sequence[OrderItem], *, can_add: bool) -> InlineKeyboardMarkup:
+    """Корзина: править и убирать боксы, добавить ещё один или идти дальше."""
+    builder = InlineKeyboardBuilder()
+    many = len(items) > 1
+    for index, item in enumerate(items, start=1):
+        label = f"бокс {index}" if many else "бокс"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"✏️ Изменить {label}",
+                callback_data=CartCB(action="edit", item_id=item.id).pack(),
+            ),
+            InlineKeyboardButton(
+                text="🗑 Убрать",
+                callback_data=CartCB(action="remove", item_id=item.id).pack(),
+            ),
+        )
+    if can_add:
+        builder.row(
+            InlineKeyboardButton(
+                text="➕ Добавить ещё бокс",
+                callback_data=CartCB(action="add").pack(),
+            ),
+        )
+    builder.row(
+        InlineKeyboardButton(text="Далее: доставка →", callback_data=CartCB(action="next").pack()),
+    )
+    builder.row(cancel_button())
+    return builder.as_markup()
+
+
+def pickup_search(*, back_step: str = "cart") -> InlineKeyboardMarkup:
     """Как искать пункт выдачи: геопозиция запрашивается reply-клавиатурой."""
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -110,7 +142,7 @@ def pickup_search() -> InlineKeyboardMarkup:
         callback_data=StepCB(step="pickup_city").pack(),
     )
     builder.adjust(1)
-    builder.row(back_button("comment"))
+    builder.row(back_button(back_step))
     return builder.as_markup()
 
 
@@ -153,35 +185,38 @@ def pickup_points(
     return builder.as_markup()
 
 
-def prefill(*, has_previous: bool) -> InlineKeyboardMarkup:
-    """Предложение подставить данные прошлого заказа."""
+def confirm_prefilled(what: str, *, keep: str, change: str) -> InlineKeyboardMarkup:
+    """Подставленные из прошлого заказа данные: оставить или поменять."""
     builder = InlineKeyboardBuilder()
-    if has_previous:
-        builder.button(
-            text="Использовать прошлые данные",
-            callback_data=PrefillCB(use=True).pack(),
-        )
-    builder.button(text="Ввести заново", callback_data=PrefillCB(use=False).pack())
+    builder.button(text=keep, callback_data=PrefillCB(what=what, use=True).pack())
+    builder.button(text=change, callback_data=PrefillCB(what=what, use=False).pack())
     builder.adjust(1)
     return builder.as_markup()
 
 
-def email_step() -> InlineKeyboardMarkup:
+def resume_draft() -> InlineKeyboardMarkup:
+    """Незаконченное оформление: продолжить или начать заново."""
+    return confirm_prefilled("draft", keep="Продолжить оформление", change="Начать заново")
+
+
+def email_step(*, has_current: bool) -> InlineKeyboardMarkup | None:
+    """Email обязателен, поэтому «пропустить» нельзя — только оставить уже указанный."""
+    if not has_current:
+        return None
     builder = InlineKeyboardBuilder()
-    builder.row(skip_button("email", "Без email"))
+    builder.row(skip_button("email", "Оставить этот email"))
     return builder.as_markup()
 
 
 def summary() -> InlineKeyboardMarkup:
     """Итог заказа: правки по разделам и переход к оплате."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="✏️ Изменить бокс", callback_data=StepCB(step="product").pack())
-    builder.button(text="✏️ Изменить пожелания", callback_data=StepCB(step="colors_f").pack())
-    builder.button(text="✏️ Изменить доставку", callback_data=StepCB(step="pickup_search").pack())
-    builder.button(text="✏️ Изменить контакты", callback_data=StepCB(step="recipient").pack())
+    builder.button(text="✏️ Боксы и пожелания", callback_data=StepCB(step="cart").pack())
+    builder.button(text="✏️ Доставка", callback_data=StepCB(step="pickup_search").pack())
+    builder.button(text="✏️ Получатель", callback_data=StepCB(step="recipient").pack())
     builder.adjust(1)
     builder.row(
-        InlineKeyboardButton(text="💳 Оплатить", callback_data=StepCB(step="pay").pack()),
+        InlineKeyboardButton(text="💳 Перейти к оплате", callback_data=StepCB(step="pay").pack()),
     )
     builder.row(cancel_button())
     return builder.as_markup()
@@ -190,7 +225,8 @@ def summary() -> InlineKeyboardMarkup:
 def payment(pay_url: str, order_id: int) -> InlineKeyboardMarkup:
     """Оформленный заказ: оплатить или отказаться.
 
-    Менять состав уже нельзя — заказ принят и ждёт оплаты.
+    Менять состав уже нельзя — заказ ждёт оплаты. Кнопки снимутся сами, когда заказ
+    оплатят или отменят.
     """
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="💳 Оплатить", url=pay_url))

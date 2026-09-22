@@ -15,6 +15,7 @@
     <div class="brand">Elizabet Magic<small>Панель мастерской</small></div>
     <nav class="nav">
       <a class="{{ 'active' if path.startswith('/admin/board') or path.startswith('/admin/orders') }}" href="/admin/board"><span class="icon">▦</span> Заказы</a>
+      {% if admin and admin.is_owner %}
       <a class="{{ 'active' if path.startswith('/admin/catalog') }}" href="/admin/catalog"><span class="icon">◇</span> Каталог</a>
       <a class="{{ 'active' if path.startswith('/admin/delivery') }}" href="/admin/delivery"><span class="icon">→</span> Доставка</a>
       <a class="{{ 'active' if path.startswith('/admin/pickup-points') }}" href="/admin/pickup-points"><span class="icon">⌖</span> Пункты выдачи</a>
@@ -22,7 +23,10 @@
       <a class="{{ 'active' if path.startswith('/admin/payments') }}" href="/admin/payments"><span class="icon">₽</span> Платежи</a>
       <a class="{{ 'active' if path.startswith('/admin/stats') }}" href="/admin/stats"><span class="icon">▤</span> Статистика</a>
       <a class="{{ 'active' if path.startswith('/admin/settings') }}" href="/admin/settings"><span class="icon">⚙</span> Настройки</a>
+      <a class="{{ 'active' if path.startswith('/admin/users') }}" href="/admin/users"><span class="icon">☺</span> Пользователи</a>
+      {% endif %}
     </nav>
+    {% if admin %}<p class="muted" style="margin:12px 0 0">{{ admin.username }} · {{ admin.role.value | admin_role }}</p>{% endif %}
     <form class="logout" method="post" action="/admin/logout">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="secondary" type="submit">Выйти</button>

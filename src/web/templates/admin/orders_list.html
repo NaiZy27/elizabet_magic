@@ -15,7 +15,7 @@
   <input name="q" value="{{ q }}" placeholder="Номер, имя, телефон или @ник">
   <select name="status">
     <option value="">Любой этап</option>
-    {% for item in statuses %}
+    {% for item in statuses if item.value != 'draft' %}
       <option value="{{ item.value }}" {{ 'selected' if selected_status == item.value }}>{{ item.value | order_status }}</option>
     {% endfor %}
   </select>
@@ -34,21 +34,21 @@
       <thead>
         <tr>
           <th>Номер</th><th>Дата</th><th>Клиент</th><th>Состав</th>
-          <th>Сумма</th><th>Доставка</th><th>Этап</th><th>Оплата</th>
+          {% if admin.is_owner %}<th>Сумма</th>{% endif %}<th>Доставка</th><th>Этап</th><th>Оплата</th>
         </tr>
       </thead>
       <tbody>
         {% for order in orders %}
           <tr>
-            <td><a href="/admin/orders/{{ order.id }}">{{ order.display_number }}</a></td>
+            <td><a href="/admin/orders/{{ order.id }}">{{ order.admin_label }}</a></td>
             <td>{{ order.created_at | ru_datetime }}</td>
             <td>{{ order.recipient_name or order.customer.display_name }}</td>
             <td>
               {% for item in order.items %}
-                {{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}<br>
+                {{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}{% if item.has_video %} 🎥{% endif %}<br>
               {% else %}<span class="muted">—</span>{% endfor %}
             </td>
-            <td>{{ order.total_kopecks | rubles }}</td>
+            {% if admin.is_owner %}<td>{{ order.total_kopecks | rubles }}</td>{% endif %}
             <td>
               {% if order.pickup_snapshot %}
                 {{ order.pickup_snapshot.get('provider_name', '') }}<br>
@@ -56,7 +56,7 @@
               {% else %}<span class="muted">не выбрана</span>{% endif %}
             </td>
             <td><span class="badge {{ order.status.value }}">{{ order.status.value | order_status }}</span></td>
-            <td>{{ order.paid_at | ru_datetime if order.paid_at else '—' }}</td>
+            <td>{% if order.refunded_at %}<span class="badge refunded">возврат</span>{% else %}{{ order.paid_at | ru_datetime if order.paid_at else '—' }}{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>

@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 
 from core.db import session_scope
-from core.services import settings
-from core.services import orders
+from core.services import orders, settings
 from worker.broker import broker
 
 logger = logging.getLogger(__name__)

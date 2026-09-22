@@ -64,6 +64,13 @@ class SkipCB(CallbackData, prefix="sk"):
     step: str
 
 
+class CartCB(CallbackData, prefix="ct"):
+    """Действие в корзине: add — ещё бокс, edit/remove — с конкретным боксом, next — дальше."""
+
+    action: str
+    item_id: int = 0
+
+
 class OrderCB(CallbackData, prefix="o"):
     """Действие над заказом в «Моих заказах»: open, pay, cancel."""
 
@@ -79,6 +86,10 @@ class ConfirmCB(CallbackData, prefix="cf"):
 
 
 class PrefillCB(CallbackData, prefix="pf"):
-    """Использовать данные прошлого заказа."""
+    """Подставленные данные: use=True — оставить, False — ввести заново.
 
+    what: draft — незаконченное оформление, pickup — пункт выдачи, recipient — получатель.
+    """
+
+    what: str
     use: bool

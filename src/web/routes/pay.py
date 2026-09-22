@@ -12,9 +12,9 @@ import logging
 from fastapi import APIRouter, Request, status
 from fastapi.responses import RedirectResponse
 
+from core.config import get_settings
 from core.enums import OrderStatus, PaymentProvider, PaymentStatus
 from core.errors import DomainError, NotFoundError
-from core.config import get_settings
 from core.services import orders as orders_service
 from core.services import payments as payments_service
 from web.security import DbSession

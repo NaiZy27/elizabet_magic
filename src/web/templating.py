@@ -71,6 +71,10 @@ templates.env.filters.update(
         "delivery_provider": labels.delivery_provider_label,
         "payment_provider": labels.payment_provider_label,
         "order_event": labels.order_event_label,
+        "cancel_reason": labels.cancel_reason_label,
+        "receipt_status": labels.receipt_status_label,
+        "receipt_provider": labels.receipt_provider_label,
+        "admin_role": labels.admin_role_label,
         "pluralize_ru": pluralize,
     },
 )
