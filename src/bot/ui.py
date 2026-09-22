@@ -87,7 +87,13 @@ async def show(
             logger.debug("Не получилось отредактировать сообщение сценария: %s", error)
             await strip_buttons(bot, chat_id, message_id)
 
-    sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+    try:
+        sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+    except TelegramBadRequest:
+        # Телеграм не принял клавиатуру (например, ссылку на локальный адрес в кнопке).
+        # Показать шаг важнее кнопок: отправляем без них, а причину пишем в лог.
+        logger.exception("Шаг отправлен без кнопок: Telegram отклонил клавиатуру")
+        sent = await bot.send_message(chat_id=chat_id, text=text)
     await state.update_data({UI_MESSAGE_ID: sent.message_id, UI_TEXT: text})
     return sent.message_id
 

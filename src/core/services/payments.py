@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +60,22 @@ def payment_url(payment: Payment) -> str:
     """Ссылка, которую бот даёт клиенту. Id платежа в адресе не светится."""
     base = get_settings().public_base_url
     return f"{base}/pay/{payment.public_token}"
+
+
+#: Адреса, которые видны только на этой машине: Telegram такие ссылки в кнопке не примет.
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+def is_button_url(url: str) -> bool:
+    """Можно ли повесить ссылку на кнопку в Telegram.
+
+    На машине разработчика PUBLIC_BASE_URL обычно http://localhost:8000 — такую
+    кнопку Telegram отклоняет, и вместо неё бот показывает ссылку текстом.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        return False
+    return parts.hostname not in LOCAL_HOSTS and not parts.hostname.endswith(".local")
 
 
 async def create_payment(session: AsyncSession, order: Order) -> Payment:
