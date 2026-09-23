@@ -28,6 +28,7 @@ ORDER_STATUS_LABELS: dict[OrderStatus, str] = {
     OrderStatus.ASSEMBLING: "Собирается",
     OrderStatus.READY: "Готов",
     OrderStatus.SHIPPED: "Передан в доставку",
+    OrderStatus.ARRIVED: "Доставлен в ПВЗ",
     OrderStatus.COMPLETED: "Получен",
     OrderStatus.CANCELLED: "Отменён",
 }
@@ -151,12 +152,12 @@ MESSAGE_TEMPLATE_LABELS: dict[MessageTemplateKey, tuple[str, str]] = {
     ),
     MessageTemplateKey.ARRIVED_AT_PICKUP: (
         "Посылка в пункте выдачи",
-        "Когда посылка прибыла в выбранный клиентом ПВЗ: по данным службы "
-        "или по кнопке «Прибыл в ПВЗ» в карточке заказа.",
+        "Когда заказ переходит в колонку «Доставлен в ПВЗ» — вручную "
+        "или по данным службы доставки.",
     ),
     MessageTemplateKey.STATUS_COMPLETED: (
-        "Заказ получен",
-        "Когда заказ отмечен полученным.",
+        "Спасибо за заказ",
+        "Когда заказ отмечен полученным — вами на доске или службой доставки.",
     ),
     MessageTemplateKey.ORDER_CANCELLED: (
         "Заказ отменён",

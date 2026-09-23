@@ -585,6 +585,8 @@ async def change_status(
     order.status_changed_at = now_utc()
     if new_status == OrderStatus.READY:
         order.ready_at = now_utc()
+    if new_status == OrderStatus.ARRIVED and order.arrived_at is None:
+        order.arrived_at = now_utc()
     if new_status == OrderStatus.CANCELLED:
         order.cancelled_at = now_utc()
 
@@ -642,21 +644,16 @@ async def cancel(
 
 
 async def mark_arrived(session: AsyncSession, order: Order, *, actor: str = ACTOR_SYSTEM) -> Order:
-    """Посылка прибыла в пункт выдачи. Пока службы не подключены — отмечается руками."""
-    if order.status != OrderStatus.SHIPPED:
-        raise ConflictError("Отметить прибытие можно только у заказа, переданного в доставку")
-    if order.arrived_at is not None:
-        return order
+    """Посылка прибыла в пункт выдачи.
 
-    order.arrived_at = now_utc()
-    await session.flush()
+    Это этап заказа: клиенту уходит «ваш бокс в пункте выдачи», карточка переезжает
+    в колонку «Доставлен в ПВЗ». Пока служба доставки не подключена, этап ставится
+    руками; потом его будет проставлять синхронизация отправлений.
+    """
+    if order.status not in {OrderStatus.SHIPPED, OrderStatus.ARRIVED}:
+        raise ConflictError("Отметить прибытие можно только у заказа, переданного в доставку")
     await log_event(session, order, OrderEventType.ARRIVED_AT_PICKUP, actor=actor)
-    notifications.schedule_customer_notification(
-        session,
-        order,
-        MessageTemplateKey.ARRIVED_AT_PICKUP,
-    )
-    return order
+    return await change_status(session, order, OrderStatus.ARRIVED, actor=actor)
 
 
 async def expire_unpaid(session: AsyncSession, *, now: dt.datetime | None = None) -> list[Order]:

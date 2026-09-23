@@ -105,6 +105,13 @@
       <label for="max_boxes_per_order">Боксов в одном заказе, не больше</label>
       <input id="max_boxes_per_order" name="max_boxes_per_order" type="number" min="1" max="50"
              value="{{ rules.max_boxes_per_order }}">
+    </div>
+    <div class="form-row">
+      <label for="keep_completed_on_board_hours">Держать полученные заказы на доске, часов</label>
+      <input id="keep_completed_on_board_hours" name="keep_completed_on_board_hours" type="number"
+             min="1" max="720" value="{{ rules.keep_completed_on_board_hours }}">
+      <span class="helptext">Потом карточка уходит с доски. Сам заказ остаётся в списке заказов,
+        в карточке клиента и в статистике — ничего не удаляется.</span>
       <button type="submit" style="margin-top:12px">Сохранить правила</button>
     </div>
   </form>

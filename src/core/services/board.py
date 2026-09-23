@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.clock import today_moscow
+from core.clock import now_utc, today_moscow
 from core.enums import BOARD_STATUSES, QUEUE_STATUSES, OrderStatus
 from core.errors import ConflictError
 from core.labels import ORDER_STATUS_LABELS
@@ -86,9 +86,15 @@ async def load_board(
     *,
     calendar: WorkingCalendar,
     today: dt.date | None = None,
+    keep_completed_hours: int = 24,
 ) -> tuple[list[BoardColumn], BoardMetrics]:
-    """Колонки доски и метрики над ней."""
+    """Колонки доски и метрики над ней.
+
+    Полученные заказы висят на доске `keep_completed_hours` часов и уходят с неё —
+    из базы они никуда не деваются, их видно в списке заказов и в статистике.
+    """
     day = today or today_moscow()
+    hide_completed_before = now_utc() - dt.timedelta(hours=keep_completed_hours)
     result = await session.scalars(
         select(Order)
         .options(
@@ -96,7 +102,11 @@ async def load_board(
             selectinload(Order.addons),
             selectinload(Order.customer),
         )
-        .where(Order.status.in_(BOARD_STATUSES))
+        .where(
+            Order.status.in_(BOARD_STATUSES),
+            (Order.status != OrderStatus.COMPLETED)
+            | (Order.status_changed_at >= hide_completed_before),
+        )
         .order_by(Order.status_changed_at.desc()),
     )
     orders = list(result)

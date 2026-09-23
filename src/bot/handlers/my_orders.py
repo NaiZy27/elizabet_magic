@@ -26,16 +26,13 @@ from core.services import notifications, orders, payments
 
 router = Router(name="my_orders")
 
-#: Условный этап «В пункте выдачи»: это не статус заказа, а отметка arrived_at.
-ARRIVED_STEP = "arrived"
-
 #: Лента этапов в карточке заказа — то, что видит клиент.
-PROGRESS_STEPS: tuple[tuple[OrderStatus | str, str], ...] = (
+PROGRESS_STEPS: tuple[tuple[OrderStatus, str], ...] = (
     (OrderStatus.QUEUED, "Оплачен и принят в работу"),
     (OrderStatus.ASSEMBLING, "Собирается"),
     (OrderStatus.READY, "Готов к отправке"),
     (OrderStatus.SHIPPED, "Передан в доставку"),
-    (ARRIVED_STEP, "Доставлен в пункт выдачи"),
+    (OrderStatus.ARRIVED, "Доставлен в пункт выдачи"),
     (OrderStatus.COMPLETED, "Получен"),
 )
 
@@ -209,8 +206,6 @@ def _title(order: Order) -> str:
 def _status_label(order: Order) -> str:
     if order.refunded_at is not None:
         return "оплата возвращена"
-    if order.status == OrderStatus.SHIPPED and order.arrived_at is not None:
-        return "в пункте выдачи"
     return order_status_label(order.status).lower()
 
 
@@ -242,6 +237,8 @@ def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None
         lines.append(f"\nПланируем собрать к {format_date(order.promised_ready_date)}")
     if shipment is not None and shipment.track_number:
         lines.append(f"\nТрек-номер: <code>{shipment.track_number}</code>")
+    if order.status == OrderStatus.ARRIVED and (order.pickup_snapshot or {}).get("working_hours"):
+        lines.append(f"Режим работы пункта: {order.pickup_snapshot['working_hours']}")
     if receipt is not None and receipt.url:
         lines.append(f'\n🧾 <a href="{receipt.url}">Чек об оплате</a>')
     return "\n".join(lines)
@@ -249,9 +246,7 @@ def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None
 
 def _progress(order: Order) -> str:
     """Лента этапов: пройденные — галочкой, текущий — стрелкой."""
-    current: OrderStatus | str = OrderStatus(order.status)
-    if current == OrderStatus.SHIPPED and order.arrived_at is not None:
-        current = ARRIVED_STEP
+    current = OrderStatus(order.status)
     order_of = {status: index for index, (status, _) in enumerate(PROGRESS_STEPS)}
     position = order_of.get(current, -1)
 
