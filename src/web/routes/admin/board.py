@@ -25,7 +25,12 @@ api_router = APIRouter(tags=["admin-api"])
 @router.get("/board")
 async def show_board(request: Request, session: DbSession, admin: CurrentAdmin):
     calendar = await settings_service.get_working_calendar(session)
-    columns, metrics = await board_service.load_board(session, calendar=calendar)
+    rules = await settings_service.get_order_rules(session)
+    columns, metrics = await board_service.load_board(
+        session,
+        calendar=calendar,
+        keep_completed_hours=rules.keep_completed_on_board_hours,
+    )
     return render(
         request,
         "admin/board.html",
@@ -35,6 +40,7 @@ async def show_board(request: Request, session: DbSession, admin: CurrentAdmin):
             "admin": admin,
             "csrf_token": csrf_token(request),
             "queue_statuses": [item.value for item in QUEUE_STATUSES],
+            "keep_completed_hours": rules.keep_completed_on_board_hours,
             "today": today_moscow(),
         },
     )

@@ -6,8 +6,9 @@
   <div>
     <div class="eyebrow">Рабочая доска</div>
     <h1>Заказы</h1>
-    <p>Перенос между колонками меняет этап. Перетаскивание внутри «В очереди» и «Собирается» меняет
-      порядок сборки — даты готовности пересчитываются сразу.</p>
+    <p>Карточку можно тянуть за любое место. Перенос между колонками меняет этап и уведомляет
+      клиента, перетаскивание внутри «В очереди» и «Собирается» меняет порядок сборки —
+      даты готовности пересчитываются сразу.</p>
   </div>
   <div class="actions">
     <a class="button ghost" href="/admin/orders">Список заказов</a>
@@ -35,41 +36,45 @@
           <div class="column-title"><span class="column-dot"></span>{{ column.label }}</div>
           <span class="column-count">{{ column.count }}</span>
         </div>
+        {% if column.status.value == 'completed' %}
+          <p class="column-hint">Уходят с доски через {{ keep_completed_hours }} ч. Остаются в списке заказов.</p>
+        {% endif %}
         <div class="column-cards">
           {% for card in column.cards %}
             {% set order = card.order %}
             <article class="order-card" data-order-id="{{ order.id }}">
-              <a href="/admin/orders/{{ order.id }}" aria-label="Открыть заказ {{ order.admin_label }}">
-                <div class="order-number">
-                  <span>
-                    <span class="queue-position" {% if card.position is none %}hidden{% endif %}>{{ card.position or '' }}</span>{{ order.admin_label }}
-                  </span>
-                  <span class="order-date">{{ order.created_at | ru_datetime_short }}</span>
-                </div>
-                <h3 class="customer-name">{{ order.recipient_name or order.customer.display_name }}</h3>
-                <p class="order-product">
-                  {% for item in order.items %}
-                    {{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}{% if not loop.last %}<br>{% endif %}
-                  {% else %}
-                    Состав не указан
-                  {% endfor %}
-                </p>
-                <p class="order-ready {{ 'late' if card.is_late }}" {% if not card.ready_date %}hidden{% endif %}>
-                  {% if card.ready_date %}Готов к {{ card.ready_date | ru_date_short }}{% endif %}
-                </p>
-                <div class="order-flags">
-                  {% if order.video_box_count %}
-                    <span class="badge queued">🎥 Видео{% if order.box_count > 1 %}: {{ order.video_box_count }} из {{ order.box_count }}{% endif %}</span>
-                  {% endif %}
-                  {% if order.has_wishes %}<span class="badge">Есть пожелания</span>{% endif %}
-                  {% if order.admin_note %}<span class="badge">Есть заметка</span>{% endif %}
-                  {% if card.is_late %}<span class="badge cancelled">⚠️ Не успеваем</span>{% endif %}
-                </div>
-                <div class="order-meta">
-                  <span class="order-price">{% if admin.is_owner %}{{ order.total_kopecks | rubles }}{% else %}{{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}{% endif %}</span>
-                  <span class="order-city">{{ (order.pickup_snapshot or {}).get('city') or 'Город не выбран' }}</span>
-                </div>
-              </a>
+              {# Вся карточка — область перетаскивания. Кликабельны только ссылки. #}
+              <div class="order-number">
+                <span>
+                  <span class="queue-position" {% if card.position is none %}hidden{% endif %}>{{ card.position or '' }}</span>
+                  <a class="order-link" href="/admin/orders/{{ order.id }}" draggable="false">{{ order.admin_label }}</a>
+                </span>
+                <span class="order-date">{{ order.created_at | ru_datetime_short }}</span>
+              </div>
+              <h3 class="customer-name">{{ order.recipient_name or order.customer.display_name }}</h3>
+              <p class="order-product">
+                {% for item in order.items %}
+                  {{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}{% if not loop.last %}<br>{% endif %}
+                {% else %}
+                  Состав не указан
+                {% endfor %}
+              </p>
+              <p class="order-ready {{ 'late' if card.is_late }}" {% if not card.ready_date %}hidden{% endif %}>
+                {% if card.ready_date %}Готов к {{ card.ready_date | ru_date_short }}{% endif %}
+              </p>
+              <div class="order-flags">
+                {% if order.video_box_count %}
+                  <span class="badge queued">🎥 Видео{% if order.box_count > 1 %}: {{ order.video_box_count }} из {{ order.box_count }}{% endif %}</span>
+                {% endif %}
+                {% if order.has_wishes %}<span class="badge">Есть пожелания</span>{% endif %}
+                {% if order.admin_note %}<span class="badge">Есть заметка</span>{% endif %}
+                {% if card.is_late %}<span class="badge cancelled">⚠️ Не успеваем</span>{% endif %}
+              </div>
+              <div class="order-meta">
+                <span class="order-price">{% if admin.is_owner %}{{ order.total_kopecks | rubles }}{% else %}{{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}{% endif %}</span>
+                <span class="order-city">{{ (order.pickup_snapshot or {}).get('city') or 'Город не выбран' }}</span>
+              </div>
+              <a class="order-open" href="/admin/orders/{{ order.id }}" draggable="false">Открыть заказ →</a>
             </article>
           {% else %}
             <div class="drop-empty">Перетащите заказ сюда</div>

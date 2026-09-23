@@ -18,6 +18,8 @@ class OrderStatus(StrEnum):
     ASSEMBLING = "assembling"
     READY = "ready"
     SHIPPED = "shipped"
+    #: Посылка доехала до пункта выдачи и ждёт клиента.
+    ARRIVED = "arrived"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -33,6 +35,7 @@ BOARD_STATUSES: tuple[OrderStatus, ...] = (
     OrderStatus.ASSEMBLING,
     OrderStatus.READY,
     OrderStatus.SHIPPED,
+    OrderStatus.ARRIVED,
     OrderStatus.COMPLETED,
 )
 
@@ -43,6 +46,7 @@ PAID_STATUSES: frozenset[OrderStatus] = frozenset(
         OrderStatus.ASSEMBLING,
         OrderStatus.READY,
         OrderStatus.SHIPPED,
+        OrderStatus.ARRIVED,
         OrderStatus.COMPLETED,
     },
 )
@@ -59,9 +63,12 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
         {OrderStatus.ASSEMBLING, OrderStatus.SHIPPED, OrderStatus.CANCELLED},
     ),
     OrderStatus.SHIPPED: frozenset(
-        {OrderStatus.READY, OrderStatus.COMPLETED, OrderStatus.CANCELLED},
+        {OrderStatus.READY, OrderStatus.ARRIVED, OrderStatus.COMPLETED, OrderStatus.CANCELLED},
     ),
-    OrderStatus.COMPLETED: frozenset({OrderStatus.SHIPPED}),
+    OrderStatus.ARRIVED: frozenset(
+        {OrderStatus.SHIPPED, OrderStatus.COMPLETED, OrderStatus.CANCELLED},
+    ),
+    OrderStatus.COMPLETED: frozenset({OrderStatus.ARRIVED, OrderStatus.SHIPPED}),
     OrderStatus.CANCELLED: frozenset(),
 }
 
@@ -219,6 +226,7 @@ STATUS_TEMPLATES: dict[OrderStatus, MessageTemplateKey] = {
     OrderStatus.ASSEMBLING: MessageTemplateKey.STATUS_ASSEMBLING,
     OrderStatus.READY: MessageTemplateKey.STATUS_READY,
     OrderStatus.SHIPPED: MessageTemplateKey.STATUS_SHIPPED,
+    OrderStatus.ARRIVED: MessageTemplateKey.ARRIVED_AT_PICKUP,
     OrderStatus.COMPLETED: MessageTemplateKey.STATUS_COMPLETED,
     OrderStatus.CANCELLED: MessageTemplateKey.ORDER_CANCELLED,
 }

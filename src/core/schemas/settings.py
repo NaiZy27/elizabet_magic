@@ -64,6 +64,9 @@ class OrderRulesSettings(SettingsModel):
     draft_ttl_days: int = Field(default=30, gt=0)
     #: Сколько боксов можно положить в один заказ.
     max_boxes_per_order: int = Field(default=10, ge=1, le=50)
+    #: Сколько часов полученный заказ ещё висит на доске. Дальше он остаётся
+    #: в списке заказов, в клиентах и в статистике, но доску не загромождает.
+    keep_completed_on_board_hours: int = Field(default=24, ge=1, le=24 * 30)
 
 
 class IntakeSettings(SettingsModel):

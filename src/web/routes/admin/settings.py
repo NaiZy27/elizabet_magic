@@ -173,6 +173,7 @@ async def save_rules(
     unpaid_ttl_minutes: Annotated[int, Form(ge=5, le=10080)],
     draft_ttl_days: Annotated[int, Form(ge=1, le=365)],
     max_boxes_per_order: Annotated[int, Form(ge=1, le=50)] = 10,
+    keep_completed_on_board_hours: Annotated[int, Form(ge=1, le=720)] = 24,
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
     verify_csrf(request, csrf)
@@ -183,6 +184,7 @@ async def save_rules(
             unpaid_ttl_minutes=unpaid_ttl_minutes,
             draft_ttl_days=draft_ttl_days,
             max_boxes_per_order=max_boxes_per_order,
+            keep_completed_on_board_hours=keep_completed_on_board_hours,
         ),
     )
     return _back()
