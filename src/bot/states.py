@@ -32,6 +32,12 @@ class Checkout(StatesGroup):
     summary = State()
 
 
+class OwnerPhoto(StatesGroup):
+    """Владелица прислала боту фото для бокса."""
+
+    waiting = State()
+
+
 #: Шагов у одного бокса — показывается как «Бокс 2 · шаг 3 из 6».
 BOX_STEPS = 6
 
@@ -74,3 +80,6 @@ BOX_KEYS = (
     AVOID_COLORS,
     COMMENT,
 )
+
+#: Бокс, для которого владелица присылает фото.
+PHOTO_PRODUCT_ID = "photo_product_id"

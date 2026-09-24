@@ -97,3 +97,16 @@ def test_only_expired_orders_can_be_revived():
     assert can_revive(expired) is True
     assert can_revive(by_customer) is False
     assert can_revive(already_paid) is False
+
+
+def test_staff_chat_ids_collect_owner_and_service():
+    """Рабочие аккаунты бота — владелица и служебный чат, если они заданы."""
+    from core.config import OwnerSettings, Settings
+
+    def staff(owner: int | None, service: int | None) -> frozenset[int]:
+        chats = OwnerSettings(owner_chat_id=owner, service_chat_id=service)
+        return Settings(owner=chats).staff_chat_ids
+
+    assert staff(111, 222) == frozenset({111, 222})
+    assert staff(111, None) == frozenset({111})
+    assert staff(None, None) == frozenset()
