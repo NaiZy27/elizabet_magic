@@ -141,6 +141,37 @@ docker compose run --rm web python -m web.create_admin elizabet
 ./deploy/render-nginx.sh домен crm.домен     # готовые файлы — в deploy/nginx/out/
 ```
 
-- Бэкапы: [deploy/backup.sh](deploy/backup.sh), ежедневно по cron, хранение 14 дней.
-  Копию нужно увозить с сервера — сама по себе она этого не делает.
-- Обновление: `git pull && docker compose up -d --build && docker compose run --rm web alembic upgrade head`.
+Обновление на сервере:
+
+```bash
+git pull && docker compose up -d --build
+docker compose run --rm web alembic upgrade head
+```
+
+## Бэкапы
+
+[deploy/backup.sh](deploy/backup.sh) снимает дамп базы, кладёт его в
+`/var/backups/elizabet-magic` (хранение 14 дней) и отправляет копию файлом в Telegram —
+на том же диске копия пропала бы вместе с сервером. Куда слать, задаёт `BACKUP_CHAT_ID`
+(по умолчанию служебный чат, иначе чат владелицы), `BACKUP_CHAT_ID=0` выключает отправку.
+В дампе есть персональные данные покупателей, поэтому чат должен быть закрытым;
+`BACKUP_PASSPHRASE` шифрует файл перед отправкой.
+
+```bash
+crontab -e
+# 0 3 * * * cd /opt/elizabet-magic && ./deploy/backup.sh >> /var/log/em-backup.log 2>&1
+```
+
+Восстановление из копии:
+
+```bash
+# если файл зашифрован
+openssl enc -d -aes-256-cbc -pbkdf2 -in em-2026-09-24.sql.gz.enc -out em.sql.gz
+
+docker compose stop web bot worker scheduler
+gunzip -c em.sql.gz | docker compose exec -T postgres psql -U em -d elizabet_magic
+docker compose start web bot worker scheduler
+```
+
+Раз в пару месяцев стоит проверять, что копия действительно разворачивается: бэкап,
+который никто не пробовал восстановить, — это ещё не бэкап.
