@@ -93,3 +93,10 @@ class PrefillCB(CallbackData, prefix="pf"):
 
     what: str
     use: bool
+
+
+class OwnerPhotoCB(CallbackData, prefix="ph"):
+    """Фото бокса в рабочем режиме: pick — выбрать бокс, clear — убрать, list — назад."""
+
+    action: str
+    product_id: int

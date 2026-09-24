@@ -190,6 +190,19 @@ class Settings(BaseSettings):
         return self
 
     @property
+    def staff_chat_ids(self) -> frozenset[int]:
+        """Кто в боте — «свой»: владелица и служебный чат.
+
+        Этим аккаунтам бот показывает рабочее меню вместо клиентского, и заказы
+        с них оформить нельзя: заказы оформляют покупатели.
+        """
+        return frozenset(
+            chat_id
+            for chat_id in (self.owner.owner_chat_id, self.owner.service_chat_id)
+            if chat_id is not None
+        )
+
+    @property
     def payments_are_real(self) -> bool:
         """Идут ли настоящие списания. False — работает заглушка оплаты."""
         return self.payments_mode == "robokassa"
