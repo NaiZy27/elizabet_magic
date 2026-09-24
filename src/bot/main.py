@@ -17,7 +17,7 @@ from aiogram.types import BotCommand
 
 from bot.handlers import build_router
 from bot.middlewares import ContextMiddleware
-from core.config import get_settings
+from core.config import get_settings, warn_about_stub_payments
 from core.db import dispose_engine
 from worker.broker import ensure_started, shutdown
 
@@ -45,6 +45,7 @@ def create_dispatcher() -> Dispatcher:
 
 async def run() -> None:
     settings = get_settings()
+    warn_about_stub_payments(logger)
     token = settings.bot.token.get_secret_value()
     if not token:
         raise RuntimeError("BOT_TOKEN не задан — бот не может запуститься")

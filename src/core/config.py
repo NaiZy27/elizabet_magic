@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -18,6 +19,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from core.enums import ProviderEnvironment
 
 Environment = Literal["development", "test", "production"]
+
+#: Как принимаются деньги. «stub» — внутренняя заглушка: клиент отмечает заказ
+#: оплаченным кнопкой на странице оплаты, никаких списаний не происходит. Годится
+#: только для тестового контура и включается осознанно, переменной PAYMENTS_MODE.
+PaymentsMode = Literal["stub", "robokassa"]
 
 _BASE_CONFIG = SettingsConfigDict(
     env_file=".env",
@@ -125,6 +131,9 @@ class Settings(BaseSettings):
     #: Тестовые и боевые справочники лежат в одной таблице и не смешиваются.
     delivery_environment: ProviderEnvironment = ProviderEnvironment.TEST
 
+    #: Приём денег: «robokassa» — настоящая оплата, «stub» — заглушка для тестов.
+    payments_mode: PaymentsMode = "stub"
+
     database_url: str = "postgresql+asyncpg://em:changeme@localhost:5432/elizabet_magic"
     redis_url: str = "redis://localhost:6379"
 
@@ -161,23 +170,29 @@ class Settings(BaseSettings):
         """В проде пустые секреты — это не «значение по умолчанию», а незаполненный .env."""
         if self.environment != "production":
             return self
-        missing = [
-            name
-            for name, filled in (
-                ("BOT_TOKEN", bool(self.bot.token.get_secret_value())),
-                ("OWNER_CHAT_ID", self.owner.owner_chat_id is not None),
-                ("ADMIN_SESSION_SECRET", len(self.admin.session_secret.get_secret_value()) >= 32),
+        required = [
+            ("BOT_TOKEN", bool(self.bot.token.get_secret_value())),
+            ("OWNER_CHAT_ID", self.owner.owner_chat_id is not None),
+            ("ADMIN_SESSION_SECRET", len(self.admin.session_secret.get_secret_value()) >= 32),
+        ]
+        if self.payments_mode == "robokassa":
+            # С заглушкой оплаты ключи Робокассы не нужны: это тестовый контур.
+            required += [
                 ("ROBOKASSA_LOGIN", bool(self.robokassa.login)),
                 ("ROBOKASSA_PASSWORD1", bool(self.robokassa.password1.get_secret_value())),
                 ("ROBOKASSA_PASSWORD2", bool(self.robokassa.password2.get_secret_value())),
-            )
-            if not filled
-        ]
+            ]
+        missing = [name for name, filled in required if not filled]
         if missing:
             raise ValueError(
                 "Не заполнены обязательные переменные окружения: " + ", ".join(missing)
             )
         return self
+
+    @property
+    def payments_are_real(self) -> bool:
+        """Идут ли настоящие списания. False — работает заглушка оплаты."""
+        return self.payments_mode == "robokassa"
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -204,3 +219,15 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Настройки читаются один раз за процесс."""
     return Settings()
+
+
+def warn_about_stub_payments(logger: logging.Logger) -> None:
+    """Сказать в лог, что деньги не списываются. Вызывается при старте каждого процесса."""
+    settings = get_settings()
+    if settings.payments_are_real:
+        return
+    logger.warning(
+        "PAYMENTS_MODE=stub: оплата работает заглушкой, деньги не списываются. "
+        "Любой, у кого есть ссылка на оплату, может отметить свой заказ оплаченным. "
+        "Для настоящих платежей заполните ключи Робокассы и поставьте PAYMENTS_MODE=robokassa.",
+    )

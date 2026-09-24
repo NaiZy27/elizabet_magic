@@ -19,7 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from core.cache import close_redis
-from core.config import get_settings
+from core.config import get_settings, warn_about_stub_payments
 from core.db import dispose_engine
 from web.routes import pay
 from web.routes.admin import router as admin_router
@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    warn_about_stub_payments(logger)
 
     app = FastAPI(
         title="Elizabet Magic",

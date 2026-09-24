@@ -44,9 +44,12 @@ logger = logging.getLogger(__name__)
 
 
 def current_provider() -> PaymentProvider:
-    """Робокасса, если магазин настроен, иначе заглушка для разработки."""
-    settings = get_settings()
-    return PaymentProvider.ROBOKASSA if settings.robokassa.login else PaymentProvider.STUB
+    """Кто принимает деньги — решает PAYMENTS_MODE, а не наличие ключей.
+
+    Так заглушка не включается сама по себе из-за незаполненного .env: чтобы
+    принимать «оплату» кнопкой, режим нужно выставить руками.
+    """
+    return PaymentProvider.ROBOKASSA if get_settings().payments_are_real else PaymentProvider.STUB
 
 
 def current_environment() -> ProviderEnvironment:

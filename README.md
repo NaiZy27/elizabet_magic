@@ -102,14 +102,45 @@ docker compose run --rm web alembic revision --autogenerate -m "sanity check"
 первую миграцию. Это единственная разовая проверка, дальше миграции создаются обычным
 `make revision`.
 
-## Боевой контур
+## Сервер
 
 Разворачивается на Ubuntu тем же `docker compose`, снаружи — nginx с сертификатом
-от certbot. Наружу опубликован только `web` на `127.0.0.1:8000`.
+от certbot. Наружу опубликован только `web` на `127.0.0.1:8000`, бот работает
+поллингом и домена не требует.
 
-- Конфиги nginx — в [deploy/nginx/](deploy/nginx/): на публичном домене открыты
-  только `/pay/` и `/webhooks/`, админка живёт на отдельном поддомене.
-- Переменные окружения — в [.env.example](.env.example).
-- Миграции при деплое: `docker compose run --rm web alembic upgrade head`.
+```bash
+git clone https://github.com/NaiZy27/elizabet_magic.git /opt/elizabet-magic
+cd /opt/elizabet-magic
+cp .env.example .env            # заполнить, см. ниже
+docker compose up -d --build
+docker compose run --rm web alembic upgrade head
+docker compose run --rm web python -m core.seed
+docker compose run --rm web python -m web.create_admin elizabet
+```
+
+Обязательное в `.env` сервера:
+
+| Переменная | Значение |
+|---|---|
+| `ENVIRONMENT` | `production` |
+| `COMPOSE_FILE` | `docker-compose.yml` — иначе подхватится `docker-compose.override.yml` для разработки |
+| `DATABASE_URL` / `REDIS_URL` | хосты `postgres` и `redis` (имена контейнеров) |
+| `PUBLIC_BASE_URL` | `https://домен` — отсюда берётся ссылка на оплату |
+| `ADMIN_BASE_URL` | `https://crm.домен` — отсюда ссылки на заказы в сообщениях владелице |
+| `ADMIN_HTTPS_ONLY` | `true` |
+| `ADMIN_SESSION_SECRET` | длинная случайная строка |
+| `PAYMENTS_MODE` | `stub` на тестовом контуре, `robokassa` — когда подключим приём денег |
+
+С `PAYMENTS_MODE=stub` ключи Робокассы не нужны, но оплата не настоящая: кнопка на
+странице оплаты просто отмечает заказ оплаченным. Каждый процесс пишет об этом
+предупреждение в лог при старте.
+
+Конфиги nginx собираются под свои домены:
+
+```bash
+./deploy/render-nginx.sh домен crm.домен     # готовые файлы — в deploy/nginx/out/
+```
+
 - Бэкапы: [deploy/backup.sh](deploy/backup.sh), ежедневно по cron, хранение 14 дней.
   Копию нужно увозить с сервера — сама по себе она этого не делает.
+- Обновление: `git pull && docker compose up -d --build && docker compose run --rm web alembic upgrade head`.
