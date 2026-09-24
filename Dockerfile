@@ -28,5 +28,10 @@ COPY src ./src
 RUN useradd --create-home --uid 1000 app && chown -R app:app /app
 USER app
 
+# Заголовки X-Forwarded-* от nginx принимаем с любого адреса: внутрь контейнера
+# запросы приходят с адреса моста Docker, а не с 127.0.0.1. Это безопасно, потому что
+# порт web опубликован только на 127.0.0.1 хоста — снаружи до него не достучаться.
+# Без этого приложение считает, что его открыли по http: ссылки на стили получаются
+# http://, и браузер на https-странице их блокирует.
 CMD ["uvicorn", "web.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", \
-     "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+     "--proxy-headers", "--forwarded-allow-ips", "*"]
