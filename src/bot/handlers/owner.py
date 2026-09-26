@@ -49,16 +49,6 @@ async def start(message: Message, state: FSMContext) -> None:
     await message.answer(GREETING, reply_markup=kb.owner_menu())
 
 
-@router.message(Command("id"))
-@router.message(F.text == kb.BTN_MY_ID)
-async def show_id(message: Message) -> None:
-    """Свой id — чтобы вписать его в OWNER_CHAT_ID, не ища сторонних ботов."""
-    await message.answer(
-        f"id этого чата: <code>{message.chat.id}</code>",
-        reply_markup=kb.owner_menu(),
-    )
-
-
 @router.message(F.text == kb.BTN_PANEL)
 async def show_panel(message: Message) -> None:
     url = f"{get_settings().admin_base_url}/admin/board"

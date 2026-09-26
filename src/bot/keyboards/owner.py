@@ -18,18 +18,16 @@ from core.text import truncate
 
 BTN_PHOTO = "📸 Фото бокса"
 BTN_PANEL = "🖥 Панель заказов"
-BTN_MY_ID = "🆔 Мой id"
 
 #: Кнопки рабочего меню — по ним же ловятся нажатия.
-OWNER_BUTTONS = frozenset({BTN_PHOTO, BTN_PANEL, BTN_MY_ID})
+OWNER_BUTTONS = frozenset({BTN_PHOTO, BTN_PANEL})
 
 
 def owner_menu() -> ReplyKeyboardMarkup:
     """Постоянная клавиатура владелицы. Кнопки «Заказать бокс» здесь нет."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BTN_PHOTO)],
-            [KeyboardButton(text=BTN_PANEL), KeyboardButton(text=BTN_MY_ID)],
+            [KeyboardButton(text=BTN_PHOTO), KeyboardButton(text=BTN_PANEL)],
         ],
         resize_keyboard=True,
     )
