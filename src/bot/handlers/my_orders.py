@@ -7,15 +7,15 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from bot import ui
-from bot.callbacks import OrderCB
-from bot.keyboards.common import BTN_MY_ORDERS, main_menu
+from bot.callbacks import MenuCB, OrderCB, ReviewCB
+from bot.keyboards.common import BTN_MY_ORDERS, DANGER, PRIMARY, SUCCESS, menu_button
 from core.clock import format_date, format_datetime
 from core.enums import CancelReason, OrderStatus, ReceiptStatus
 from core.errors import DomainError
@@ -40,8 +40,18 @@ PROGRESS_STEPS: tuple[tuple[OrderStatus, str], ...] = (
 ORDERS_LIMIT = 10
 
 
+@router.callback_query(MenuCB.filter(F.section == "orders"))
+async def orders_button(callback: CallbackQuery, session: AsyncSession, customer: Customer) -> None:
+    await callback.answer()
+    await list_orders(callback, session, customer)
+
+
 @router.message(F.text == BTN_MY_ORDERS)
-async def list_orders(message: Message, session: AsyncSession, customer: Customer) -> None:
+async def list_orders(
+    event: Message | CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
     result = await session.scalars(
         select(Order)
         .options(
@@ -54,24 +64,21 @@ async def list_orders(message: Message, session: AsyncSession, customer: Custome
     found = list(result)
 
     if not found:
-        await message.answer(
-            "Заказов пока нет. Загляните в каталог — соберём для вас бокс 💗",
-            reply_markup=main_menu(),
-        )
+        builder = InlineKeyboardBuilder()
+        builder.row(menu_button("🛍 Заказать бокс", "order", style=PRIMARY))
+        builder.row(menu_button("← Меню", "home"))
+        await ui.reply(event, text="Заказов пока нет 💗", keyboard=builder.as_markup())
         return
 
     builder = InlineKeyboardBuilder()
-    lines = ["<b>📦 Ваши заказы</b>", ""]
     for order in found:
-        label = _status_label(order)
-        lines.append(f"{_title(order)} · {label}")
         builder.button(
-            text=f"{_title(order)} — {label}",
+            text=f"{_title(order)} — {_status_label(order)}",
             callback_data=OrderCB(order_id=order.id, action="open").pack(),
         )
     builder.adjust(1)
-
-    await message.answer("\n".join(lines), reply_markup=builder.as_markup())
+    builder.row(menu_button("← Меню", "home"))
+    await ui.reply(event, text="<b>📦 Ваши заказы</b>", keyboard=builder.as_markup())
 
 
 @router.callback_query(OrderCB.filter(F.action == "open"))
@@ -101,19 +108,15 @@ async def open_order(
     )
     text = _order_card(order, shipment, receipt)
     keyboard = await _order_keyboard(session, order)
-    if callback.message is not None:
-        sent = await callback.message.answer(
-            text,
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
+    await ui.reply(callback, text=text, keyboard=keyboard)
+    if order.status == OrderStatus.WAITING_PAYMENT and callback.message is not None:
+        # Кнопки оплаты снимутся сами, когда заказ оплатят или отменят.
+        orders.remember_bot_message(
+            order,
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text=text,
         )
-        if keyboard is not None:
-            orders.remember_bot_message(
-                order,
-                chat_id=sent.chat.id,
-                message_id=sent.message_id,
-                text=text,
-            )
 
 
 @router.callback_query(OrderCB.filter(F.action == "pay"))
@@ -194,7 +197,7 @@ def _payment_link(order: Order, url: str) -> tuple[str, InlineKeyboardMarkup | N
     if not payments.is_button_url(url):
         return f"{text}\n\nСсылка на оплату:\n<code>{url}</code>", None
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Оплатить", url=url)
+    builder.row(InlineKeyboardButton(text="💳 Оплатить", url=url, style=SUCCESS))
     return text, builder.as_markup()
 
 
@@ -234,7 +237,9 @@ def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None
 
     lines.extend(["", _progress(order)])
     if order.promised_ready_date and order.status in {OrderStatus.QUEUED, OrderStatus.ASSEMBLING}:
-        lines.append(f"\nПланируем собрать к {format_date(order.promised_ready_date)}")
+        lines.append(f"\nСоберём к {format_date(order.promised_ready_date)}")
+    if order.queue_position and order.status == OrderStatus.QUEUED:
+        lines.append(f"Место в очереди: {order.queue_position}")
     if shipment is not None and shipment.track_number:
         lines.append(f"\nТрек-номер: <code>{shipment.track_number}</code>")
     if order.status == OrderStatus.ARRIVED and (order.pickup_snapshot or {}).get("working_hours"):
@@ -261,27 +266,39 @@ def _progress(order: Order) -> str:
     return "\n".join(parts)
 
 
-async def _order_keyboard(session: AsyncSession, order: Order) -> InlineKeyboardMarkup | None:
-    """Кнопки под карточкой. У оплаченного заказа действий нет — только чтение."""
-    if order.status != OrderStatus.WAITING_PAYMENT:
-        return None
-
+async def _order_keyboard(session: AsyncSession, order: Order) -> InlineKeyboardMarkup:
+    """Кнопки под карточкой: оплатить неоплаченный, оставить отзыв о полученном."""
     builder = InlineKeyboardBuilder()
+    if order.status == OrderStatus.COMPLETED:
+        builder.button(
+            text="💌 Оставить отзыв",
+            callback_data=ReviewCB(action="new", order_id=order.id).pack(),
+        )
+    if order.status != OrderStatus.WAITING_PAYMENT:
+        builder.button(text="← Мои заказы", callback_data=MenuCB(section="orders").pack())
+        builder.adjust(1)
+        return builder.as_markup()
+
     payment = await payments.get_pending_payment(session, order.id)
     url = payments.payment_url(payment) if payment is not None else ""
     if url and payments.is_button_url(url):
-        builder.button(text="💳 Оплатить", url=url)
+        builder.row(InlineKeyboardButton(text="💳 Оплатить", url=url, style=SUCCESS))
     else:
         # Ссылки ещё нет или она локальная — кнопка запросит её сообщением.
-        builder.button(
-            text="💳 Оплатить",
-            callback_data=OrderCB(order_id=order.id, action="pay").pack(),
+        builder.row(
+            InlineKeyboardButton(
+                text="💳 Оплатить",
+                callback_data=OrderCB(order_id=order.id, action="pay").pack(),
+                style=SUCCESS,
+            ),
         )
-    builder.button(
-        text="Отменить заказ",
-        callback_data=OrderCB(order_id=order.id, action="cancel").pack(),
+    builder.row(
+        InlineKeyboardButton(
+            text="Отменить заказ",
+            callback_data=OrderCB(order_id=order.id, action="cancel").pack(),
+            style=DANGER,
+        ),
     )
-    builder.adjust(1)
     return builder.as_markup()
 
 

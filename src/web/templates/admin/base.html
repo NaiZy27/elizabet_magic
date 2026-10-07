@@ -1,41 +1,86 @@
-{# Каркас панели: сайдбар с разделами и рабочая область. #}
+{# Каркас панели: сайдбар (на телефоне — нижняя панель вкладок) и рабочая область. #}
+{% from "admin/_ui.html" import icon %}
 <!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#120a0f">
   <title>{% block title %}Панель{% endblock %} — Elizabet Magic</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=5">
 </head>
 <body>
 {% set path = request.url.path %}
+{% set owner = admin and admin.is_owner %}
+{# Пять разделов — не больше. Платежи живут в статистике, доставка и доступ — в настройках. #}
+{% set sections = [
+  ('/admin/board', 'Заказы', 'orders', path.startswith('/admin/board') or path.startswith('/admin/orders'), True),
+  ('/admin/catalog', 'Товары', 'box', path.startswith('/admin/catalog'), owner),
+  ('/admin/customers', 'Клиенты', 'people', path.startswith('/admin/customers') or path.startswith('/admin/reviews'), owner),
+  ('/admin/stats', 'Статистика', 'chart', path.startswith('/admin/stats') or path.startswith('/admin/payments'), owner),
+  ('/admin/settings', 'Настройки', 'gear', path.startswith('/admin/settings') or path.startswith('/admin/delivery') or path.startswith('/admin/users') or path.startswith('/admin/pickup-points'), owner),
+] %}
 <div class="shell">
   <aside class="sidebar">
-    <div class="brand">Elizabet Magic<small>Панель мастерской</small></div>
+    <a class="brand" href="/admin/board">
+      <span class="brand-mark">E</span>
+      <span class="brand-name">Elizabet Magic<small>мастерская</small></span>
+    </a>
     <nav class="nav">
-      <a class="{{ 'active' if path.startswith('/admin/board') or path.startswith('/admin/orders') }}" href="/admin/board"><span class="icon">▦</span> Заказы</a>
-      {% if admin and admin.is_owner %}
-      <a class="{{ 'active' if path.startswith('/admin/catalog') }}" href="/admin/catalog"><span class="icon">◇</span> Каталог</a>
-      <a class="{{ 'active' if path.startswith('/admin/delivery') }}" href="/admin/delivery"><span class="icon">→</span> Доставка</a>
-      <a class="{{ 'active' if path.startswith('/admin/pickup-points') }}" href="/admin/pickup-points"><span class="icon">⌖</span> Пункты выдачи</a>
-      <a class="{{ 'active' if path.startswith('/admin/customers') }}" href="/admin/customers"><span class="icon">○</span> Клиенты</a>
-      <a class="{{ 'active' if path.startswith('/admin/payments') }}" href="/admin/payments"><span class="icon">₽</span> Платежи</a>
-      <a class="{{ 'active' if path.startswith('/admin/stats') }}" href="/admin/stats"><span class="icon">▤</span> Статистика</a>
-      <a class="{{ 'active' if path.startswith('/admin/settings') }}" href="/admin/settings"><span class="icon">⚙</span> Настройки</a>
-      <a class="{{ 'active' if path.startswith('/admin/users') }}" href="/admin/users"><span class="icon">☺</span> Пользователи</a>
-      {% endif %}
+      {% for href, label, ico, active, visible in sections if visible %}
+        <a class="{{ 'active' if active }}" href="{{ href }}">{{ icon(ico) }}{{ label }}</a>
+      {% endfor %}
     </nav>
-    {% if admin %}<p class="muted" style="margin:12px 0 0">{{ admin.username }} · {{ admin.role.value | admin_role }}</p>{% endif %}
-    <form class="logout" method="post" action="/admin/logout">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="secondary" type="submit">Выйти</button>
-    </form>
+    {% if admin %}
+    <div class="side-foot">
+      <span class="avatar">{{ admin.username[:1] }}</span>
+      <span class="who"><b>{{ admin.username }}</b><small>{{ admin.role.value | admin_role }}</small></span>
+      <form class="logout" method="post" action="/admin/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="icon-btn" type="submit" title="Выйти" aria-label="Выйти">{{ icon('logout') }}</button>
+      </form>
+    </div>
+    {% endif %}
   </aside>
+
   <main class="main">
+    <div class="mobile-top">
+      <a class="brand" href="{{ '/admin/home' if owner else '/admin/board' }}"><span class="brand-mark">E</span><span class="brand-name">Elizabet Magic</span></a>
+      {% if admin %}
+      <form class="logout" method="post" action="/admin/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="icon-btn" type="submit" title="Выйти" aria-label="Выйти">{{ icon('logout') }}</button>
+      </form>
+      {% endif %}
+    </div>
     {% block content %}{% endblock %}
   </main>
 </div>
+
+{% if owner %}
+{# На телефоне внизу только три пункта: заказы, товары и клиенты открываются с главной. #}
+{% set home_active = path.startswith('/admin/home') or path.startswith('/admin/board') or path.startswith('/admin/orders')
+   or path.startswith('/admin/catalog') or path.startswith('/admin/customers') or path.startswith('/admin/reviews') %}
+<nav class="tabbar" aria-label="Разделы">
+  <a class="{{ 'active' if home_active }}" href="/admin/home">{{ icon('home') }}<span>Главная</span></a>
+  {% for href, label, ico, active, visible in sections if visible and href in ('/admin/stats', '/admin/settings') %}
+    <a class="{{ 'active' if active }}" href="{{ href }}">{{ icon(ico) }}<span>{{ label }}</span></a>
+  {% endfor %}
+</nav>
+{% endif %}
+{# Общий градиент для столбиков графиков. #}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7a3c8"/><stop offset="1" stop-color="#e0478e"/>
+    </linearGradient>
+  </defs>
+</svg>
+<script src="{{ url_for('static', path='ui.js') }}?v=5" defer></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

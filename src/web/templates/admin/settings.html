@@ -1,204 +1,217 @@
 {% extends "admin/base.html" %}
+{% from "admin/_ui.html" import settings_head %}
 {% block title %}Настройки{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">Настройки</div>
-    <h1>Тексты и правила</h1>
-    <p>Здесь меняются сообщения клиентам, рабочие дни и контакты — без участия программиста.</p>
-  </div>
-</div>
+{% set tab = 'texts' if request.query_params.get('tab') == 'texts' else 'intake' %}
+{{ settings_head(tab) }}
 
-<section class="card">
-  <h2>Приём заказов</h2>
-  <p class="muted">
-    Сейчас:
-    {% if intake_state.is_open %}
-      <span class="badge queued">приём открыт</span>
-    {% else %}
-      <span class="badge cancelled">приём закрыт</span>
-    {% endif %}
-    · в работе {{ intake_load }}{% if intake.queue_limit %} из {{ intake.queue_limit }}{% endif %}
-    {{ intake_load | pluralize_ru('заказ', 'заказа', 'заказов') }}
-  </p>
-  {% if not intake_state.is_open %}
-    <p class="helptext" style="white-space:pre-line">Клиенты видят: {{ intake_state.message }}</p>
-  {% endif %}
-  <form method="post" action="/admin/settings/intake">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label class="inline-check">
-      <input type="checkbox" name="accepting_orders" value="true" {{ 'checked' if intake.accepting_orders }}>
-      Принимаем заказы
-    </label>
-    <div class="form-grid" style="margin-top:12px">
-      <div class="form-row">
-        <label for="resume_on">Открыть приём автоматически</label>
-        <input id="resume_on" name="resume_on" type="date"
-               value="{{ intake.resume_on.isoformat() if intake.resume_on else '' }}">
-        <span class="helptext">Если приём закрыт — с этого дня он откроется сам. Удобно на время отпуска.</span>
-      </div>
-      <div class="form-row">
-        <label for="queue_limit">Лимит заказов в работе</label>
-        <input id="queue_limit" name="queue_limit" type="number" min="1" max="1000"
-               value="{{ intake.queue_limit or '' }}" placeholder="без лимита">
-        <span class="helptext">Оплаченные в очереди и на сборке плюс ожидающие оплаты. Когда лимит
-          заполнен, бот называет ближайшую дату, когда появится место.</span>
-      </div>
-      <div class="form-row">
-        <label for="extra_lead_days">Запас к сроку, рабочих дней</label>
-        <input id="extra_lead_days" name="extra_lead_days" type="number" min="0" max="60"
-               value="{{ intake.extra_lead_days }}">
-        <span class="helptext">Прибавляется к дате готовности, которую называем клиенту при оплате.</span>
-      </div>
-    </div>
-    <div class="form-row">
-      <label for="pause_message">Что написать клиентам, пока приём закрыт</label>
-      <textarea id="pause_message" name="pause_message">{{ intake.pause_message }}</textarea>
-    </div>
-    <button type="submit">Сохранить приём заказов</button>
-  </form>
+{% if tab == 'intake' %}
+
+<section class="tiles">
+  <div class="tile {{ 'hero' if intake_state.is_open else '' }} wide">
+    <span class="tile-label">Приём заказов</span>
+    <span class="tile-value">{{ 'Открыт' if intake_state.is_open else 'Закрыт' }}</span>
+    {% if not intake_state.is_open %}<span class="tile-note" style="white-space:pre-line">Клиенты видят: {{ intake_state.message }}</span>{% endif %}
+  </div>
+  <div class="tile soft">
+    <span class="tile-label">В работе</span>
+    <span class="tile-value">{{ intake_load }}{% if intake.queue_limit %}<span class="muted" style="font-size:24px"> / {{ intake.queue_limit }}</span>{% endif %}</span>
+    {% if intake.queue_limit %}<div class="meter"><span style="width: {{ [intake_load / intake.queue_limit * 100, 100] | min }}%"></span></div>{% endif %}
+  </div>
 </section>
 
 <section class="card">
-  <h2>Рабочие дни</h2>
-  <p class="muted">От них зависят все расчётные даты готовности на доске.</p>
-  <form method="post" action="/admin/settings/calendar">
+  <h2>Приём</h2>
+  <form method="post" action="/admin/settings/intake">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="switch" style="margin-bottom:8px">
+      <input type="checkbox" name="accepting_orders" value="true" {{ 'checked' if intake.accepting_orders }}>
+      Принимаем заказы
+    </label>
+    <div class="form-grid">
+      <div class="form-row">
+        <label for="resume_on">Открыть приём с</label>
+        <input id="resume_on" name="resume_on" type="date" value="{{ intake.resume_on.isoformat() if intake.resume_on else '' }}">
+        <span class="helptext">Например, после отпуска.</span>
+      </div>
+      <div class="form-row">
+        <label for="queue_limit">Лимит заказов в работе</label>
+        <input id="queue_limit" name="queue_limit" type="number" min="1" max="1000" value="{{ intake.queue_limit or '' }}" placeholder="без лимита">
+        <span class="helptext">Когда заполнен — бот назовёт ближайшую свободную дату.</span>
+      </div>
+      <div class="form-row">
+        <label for="extra_lead_days">Запас к сроку, раб. дней</label>
+        <input id="extra_lead_days" name="extra_lead_days" type="number" min="0" max="60" value="{{ intake.extra_lead_days }}">
+        <span class="helptext">Прибавляется к дате, которую называем клиенту.</span>
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="pause_message">Сообщение, пока приём закрыт</label>
+      <textarea id="pause_message" name="pause_message">{{ intake.pause_message }}</textarea>
+    </div>
+    <button type="submit">Сохранить</button>
+  </form>
+</section>
+
+<details class="fold">
+  <summary>Рабочие дни <span class="muted">{{ calendar.plain_boxes_per_day }} без видео · {{ calendar.video_boxes_per_day }} с видео в день</span></summary>
+  <form class="fold-body" method="post" action="/admin/settings/calendar">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-row">
-      <label>Собираем заказы</label>
-      <div style="display:flex; flex-wrap:wrap; gap:14px">
+      <span class="label">Собираем по</span>
+      <div class="actions">
         {% for index, name in weekday_names %}
-          <label class="inline-check">
-            <input type="checkbox" name="weekdays" value="{{ index }}" {{ 'checked' if index in calendar.weekdays }}>
-            {{ name }}
+          <label class="inline-check" style="padding:0 12px;border-radius:999px;background:var(--surface-soft)">
+            <input type="checkbox" name="weekdays" value="{{ index }}" {{ 'checked' if index in calendar.weekdays }}>{{ name[:2] }}
           </label>
         {% endfor %}
       </div>
     </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label for="plain_boxes_per_day">Боксов в день без видео</label>
+        <input id="plain_boxes_per_day" name="plain_boxes_per_day" type="number" min="1" max="50" value="{{ calendar.plain_boxes_per_day }}">
+      </div>
+      <div class="form-row">
+        <label for="video_boxes_per_day">Боксов в день с видео</label>
+        <input id="video_boxes_per_day" name="video_boxes_per_day" type="number" min="1" max="50" value="{{ calendar.video_boxes_per_day }}">
+      </div>
+    </div>
     <div class="form-row">
       <label for="holidays">Выходные даты</label>
-      <textarea id="holidays" name="holidays"
-                placeholder="2026-01-07&#10;2026-03-08">{{ calendar.holidays | map('string') | join('\n') }}</textarea>
-      <span class="helptext">По одной дате в строке, в формате 2026-01-07. Отпуск тоже сюда.</span>
+      <textarea id="holidays" name="holidays" placeholder="2026-01-07&#10;2026-03-08">{{ calendar.holidays | map('string') | join('\n') }}</textarea>
+      <span class="helptext">По одной в строке: 2026-01-07. Отпуск тоже сюда.</span>
     </div>
-    <button type="submit">Сохранить календарь</button>
+    <button type="submit">Сохранить</button>
   </form>
-</section>
+</details>
 
-<section class="card">
-  <h2>Правила заказов</h2>
-  <form method="post" action="/admin/settings/rules" class="form-grid">
+<details class="fold">
+  <summary>Правила заказов</summary>
+  <form class="fold-body" method="post" action="/admin/settings/rules">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="form-row">
-      <label for="unpaid_ttl_minutes">Сколько ждать оплату, минут</label>
-      <input id="unpaid_ttl_minutes" name="unpaid_ttl_minutes" type="number" min="5" max="10080"
-             value="{{ rules.unpaid_ttl_minutes }}">
-      <span class="helptext">После этого неоплаченный заказ отменяется автоматически.</span>
-    </div>
-    <div class="form-row">
-      <label for="draft_ttl_days">Хранить незаконченные оформления, дней</label>
-      <input id="draft_ttl_days" name="draft_ttl_days" type="number" min="1" max="365"
-             value="{{ rules.draft_ttl_days }}">
-    </div>
-    <div class="form-row">
-      <label for="max_boxes_per_order">Боксов в одном заказе, не больше</label>
-      <input id="max_boxes_per_order" name="max_boxes_per_order" type="number" min="1" max="50"
-             value="{{ rules.max_boxes_per_order }}">
-    </div>
-    <div class="form-row">
-      <label for="keep_completed_on_board_hours">Держать полученные заказы на доске, часов</label>
-      <input id="keep_completed_on_board_hours" name="keep_completed_on_board_hours" type="number"
-             min="1" max="720" value="{{ rules.keep_completed_on_board_hours }}">
-      <span class="helptext">Потом карточка уходит с доски. Сам заказ остаётся в списке заказов,
-        в карточке клиента и в статистике — ничего не удаляется.</span>
-      <button type="submit" style="margin-top:12px">Сохранить правила</button>
-    </div>
-  </form>
-</section>
-
-<section class="card">
-  <h2>Сообщения клиентам</h2>
-  <p class="muted">Доступные вставки:
-    {% for name, description in placeholders.items() %}
-      <code>{{ '{{ ' ~ name ~ ' }}' }}</code>{% if not loop.last %}, {% endif %}
-    {% endfor %}
-  </p>
-  {% for template in templates %}
-    <form method="post" action="/admin/settings/templates/{{ template.key }}" style="margin-bottom:22px">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-grid">
       <div class="form-row">
-        <label for="text-{{ template.key }}">{{ template.title }}</label>
-        <span class="helptext" style="margin-bottom:6px">{{ template.when }}</span>
-        <textarea id="text-{{ template.key }}" name="text">{{ template.text }}</textarea>
+        <label for="unpaid_ttl_minutes">Ждать оплату, минут</label>
+        <input id="unpaid_ttl_minutes" name="unpaid_ttl_minutes" type="number" min="5" max="10080" value="{{ rules.unpaid_ttl_minutes }}">
+        <span class="helptext">Потом заказ отменится сам.</span>
       </div>
-      <label class="inline-check">
-        <input type="checkbox" name="is_enabled" value="true" {{ 'checked' if template.is_enabled }}>
-        Отправлять это сообщение
-      </label>
-      <button class="secondary" type="submit" style="margin-top:10px">Сохранить</button>
-    </form>
-  {% endfor %}
-</section>
+      <div class="form-row">
+        <label for="draft_ttl_days">Хранить черновики, дней</label>
+        <input id="draft_ttl_days" name="draft_ttl_days" type="number" min="1" max="365" value="{{ rules.draft_ttl_days }}">
+      </div>
+      <div class="form-row">
+        <label for="max_boxes_per_order">Боксов в заказе, макс.</label>
+        <input id="max_boxes_per_order" name="max_boxes_per_order" type="number" min="1" max="50" value="{{ rules.max_boxes_per_order }}">
+      </div>
+      <div class="form-row">
+        <label for="keep_completed_on_board_hours">Полученные на доске, часов</label>
+        <input id="keep_completed_on_board_hours" name="keep_completed_on_board_hours" type="number" min="1" max="720" value="{{ rules.keep_completed_on_board_hours }}">
+        <span class="helptext">Заказ остаётся в списке и статистике.</span>
+      </div>
+    </div>
+    <button type="submit">Сохранить</button>
+  </form>
+</details>
+
+{% else %}
 
 <section class="card">
-  <h2>Тексты бота</h2>
-  <form method="post" action="/admin/settings/bot-texts">
+  <div class="card-head"><h2>Сообщения клиентам</h2></div>
+  <p class="muted small" style="margin-top:0">Вставки:
+    {% for name, description in placeholders.items() %}<code title="{{ description }}">{{ '{{ ' ~ name ~ ' }}' }}</code>{% if not loop.last %} {% endif %}{% endfor %}
+  </p>
+  <div class="list-rows">
+    {% for template in templates %}
+      <details class="list-row">
+        <summary>
+          <span><b>{{ template.title }}</b><br><span class="muted small">{{ template.when }}</span></span>
+          <span class="status {{ 'on' if template.is_enabled else 'off' }}"></span>
+        </summary>
+        <form class="row-body" method="post" action="/admin/settings/templates/{{ template.key }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="form-row">
+            <textarea id="text-{{ template.key }}" name="text" aria-label="{{ template.title }}" rows="6">{{ template.text }}</textarea>
+          </div>
+          <div class="form-actions">
+            <label class="switch"><input type="checkbox" name="is_enabled" value="true" {{ 'checked' if template.is_enabled }}> Отправлять</label>
+            <button class="secondary" type="submit" style="margin-left:auto">Сохранить</button>
+          </div>
+        </form>
+      </details>
+    {% endfor %}
+  </div>
+</section>
+
+<details class="fold" open>
+  <summary>Тексты бота</summary>
+  <form class="fold-body" method="post" action="/admin/settings/bot-texts">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-row">
       <label for="greeting">Приветствие</label>
       <textarea id="greeting" name="greeting">{{ bot_texts.greeting }}</textarea>
     </div>
     <div class="form-row">
-      <label for="wishes_disclaimer">Предупреждение о заменах</label>
+      <label for="no_video_note">Про видео сборки</label>
+      <textarea id="no_video_note" name="no_video_note" rows="3">{{ bot_texts.no_video_note }}</textarea>
+      <span class="helptext">Показывается под вопросом «Видео сборки?». Пусто — без подписи.</span>
+    </div>
+    <div class="form-row">
+      <label for="wishes_disclaimer">О заменах</label>
       <textarea id="wishes_disclaimer" name="wishes_disclaimer">{{ bot_texts.wishes_disclaimer }}</textarea>
-      <span class="helptext">Показывается на шаге с пожеланиями.</span>
+      <span class="helptext">На шаге с пожеланиями.</span>
     </div>
     <div class="form-row">
       <label for="consent_text">Согласие на обработку данных</label>
       <textarea id="consent_text" name="consent_text">{{ bot_texts.consent_text }}</textarea>
     </div>
     <div class="form-row">
-      <label for="consent_url">Ссылка на политику обработки данных</label>
+      <label for="consent_url">Ссылка на политику</label>
       <input id="consent_url" name="consent_url" value="{{ bot_texts.consent_url or '' }}">
     </div>
-    <button type="submit">Сохранить тексты</button>
+    <button type="submit">Сохранить</button>
   </form>
-</section>
+</details>
 
-<section class="card">
-  <h2>Контакты</h2>
-  <form method="post" action="/admin/settings/contacts" class="form-grid">
+<details class="fold">
+  <summary>Контакты</summary>
+  <form class="fold-body" method="post" action="/admin/settings/contacts">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="form-row"><label>Telegram</label><input name="telegram" value="{{ contacts.telegram or '' }}"></div>
-    <div class="form-row"><label>Телефон</label><input name="phone" value="{{ contacts.phone or '' }}"></div>
-    <div class="form-row"><label>Почта</label><input name="email" value="{{ contacts.email or '' }}"></div>
-    <div class="form-row"><label>Instagram</label><input name="instagram" value="{{ contacts.instagram or '' }}"></div>
-    <div class="form-row"><label>TikTok</label><input name="tiktok" value="{{ contacts.tiktok or '' }}"></div>
-    <div class="form-row"><button type="submit" style="margin-top:26px">Сохранить контакты</button></div>
-  </form>
-</section>
-
-<section class="card">
-  <h2>Частые вопросы</h2>
-  <form method="post" action="/admin/settings/faq">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    {% for item in faq.items %}
-      <div class="form-row">
-        <label>Вопрос</label>
-        <input name="questions" value="{{ item.question }}">
-        <label style="margin-top:8px">Ответ</label>
-        <textarea name="answers">{{ item.answer }}</textarea>
-      </div>
-    {% endfor %}
-    <div class="form-row">
-      <label>Новый вопрос</label>
-      <input name="questions" placeholder="Например: сколько собирается бокс?">
-      <label style="margin-top:8px">Ответ</label>
-      <textarea name="answers"></textarea>
+    <div class="form-grid">
+      <div class="form-row"><label>Telegram</label><input name="telegram" value="{{ contacts.telegram or '' }}"></div>
+      <div class="form-row"><label>Телефон</label><input name="phone" type="tel" value="{{ contacts.phone or '' }}"></div>
+      <div class="form-row"><label>Почта</label><input name="email" type="email" value="{{ contacts.email or '' }}"></div>
+      <div class="form-row"><label>Instagram</label><input name="instagram" value="{{ contacts.instagram or '' }}"></div>
+      <div class="form-row"><label>TikTok</label><input name="tiktok" value="{{ contacts.tiktok or '' }}"></div>
     </div>
-    <span class="helptext">Пустые пары вопрос-ответ не сохраняются — так удаляются лишние.</span>
-    <button type="submit" style="margin-top:12px">Сохранить вопросы</button>
+    <button type="submit">Сохранить</button>
   </form>
-</section>
+</details>
+
+<details class="fold">
+  <summary>Частые вопросы <span class="muted">{{ faq.items | length }}</span></summary>
+  <form class="fold-body" method="post" action="/admin/settings/faq">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="list-rows" style="margin-bottom:16px">
+      {% for item in faq.items %}
+        <div class="list-row" style="padding:16px">
+          <input name="questions" value="{{ item.question }}" aria-label="Вопрос" style="margin-bottom:8px">
+          <textarea name="answers" aria-label="Ответ">{{ item.answer }}</textarea>
+        </div>
+      {% endfor %}
+      <div class="list-row" style="padding:16px">
+        <span class="label">Новый вопрос</span>
+        <input name="questions" placeholder="Сколько собирается бокс?" style="margin-bottom:8px">
+        <textarea name="answers" placeholder="Ответ"></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit">Сохранить</button>
+      <span class="helptext">Чтобы удалить вопрос — очистите оба поля.</span>
+    </div>
+  </form>
+</details>
+
+{% endif %}
 {% endblock %}

@@ -5,9 +5,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Оплата заказа {{ order.display_number }} — Elizabet Magic</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=5">
 </head>
-<body>
+<body class="light">
 <div class="pay-page">
   <div class="card">
     <div class="eyebrow">Elizabet Magic</div>
@@ -34,7 +35,7 @@
           </tr>
         {% endfor %}
         <tr>
-          <td>Доставка</td>
+          <td>Доставка до пункта выдачи</td>
           <td style="text-align:right">{{ order.delivery_kopecks | rubles }}</td>
         </tr>
       </tbody>
@@ -51,7 +52,8 @@
         <button type="submit">Отметить оплаченным (проверка)</button>
       </form>
     {% else %}
-      <p class="pay-note">Платёжная система пока не настроена. Напишите нам в боте — поможем с оплатой.</p>
+      <p class="pay-note">Оплата картой или через СБП в Робокассе. Чек придёт на {{ order.recipient_email }}.</p>
+      <a class="button" href="/pay/{{ payment.public_token }}/go">Оплатить {{ order.total_kopecks | rubles }}</a>
     {% endif %}
 
     {% if bot_url %}

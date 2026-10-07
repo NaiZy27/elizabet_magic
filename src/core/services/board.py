@@ -35,10 +35,12 @@ __all__ = [
     "BoardCard",
     "BoardColumn",
     "BoardMetrics",
+    "QueueSpot",
     "QueueEntry",
     "WorkingCalendar",
     "append_to_queue",
     "compute_ready_dates",
+    "estimate_spot",
     "is_late",
     "load_board",
     "load_queue",
@@ -158,7 +160,11 @@ async def load_queue(session: AsyncSession, *, for_update: bool = False) -> list
     постановка оплаченного заказа в конец не должны выполняться параллельно.
     """
     statement = (
-        select(Order).where(Order.status.in_(tuple(QUEUE_STATUSES))).order_by(Order.queue_position)
+        select(Order)
+        # Состав нужен для дневного лимита: бокс с видео занимает больше времени.
+        .options(selectinload(Order.items).selectinload(OrderItem.addons))
+        .where(Order.status.in_(tuple(QUEUE_STATUSES)))
+        .order_by(Order.queue_position)
     )
     if for_update:
         statement = statement.with_for_update()
@@ -178,6 +184,8 @@ def queue_entries(orders: Iterable[Order]) -> list[QueueEntry]:
                 production_days=order.production_days,
                 status=OrderStatus(order.status),
                 queue_position=order.queue_position,
+                video_boxes=order.video_box_count,
+                plain_boxes=order.box_count - order.video_box_count,
             ),
         )
     return entries
@@ -192,6 +200,43 @@ async def ready_dates_for_queue(
     """Расчётные даты готовности для всех заказов в очереди."""
     queue = await load_queue(session)
     return compute_ready_dates(queue_entries(queue), calendar=calendar, today=today)
+
+
+@dataclass(frozen=True, slots=True)
+class QueueSpot:
+    """Где окажется заказ, если оплатить его сейчас: место в очереди и день сборки."""
+
+    position: int
+    ready_date: dt.date
+
+
+async def estimate_spot(
+    session: AsyncSession,
+    order: Order,
+    *,
+    calendar: WorkingCalendar,
+    today: dt.date | None = None,
+) -> QueueSpot:
+    """Прикинуть место для неоплаченного заказа — чтобы сказать клиенту до оплаты.
+
+    Заказ мысленно ставится в конец очереди с учётом дневного лимита: если на
+    ближайшие дни уже набраны боксы с видео, клиент сразу увидит, что его день — пятница.
+    """
+    queue = await load_queue(session)
+    entries = queue_entries(queue)
+    position = max((entry.queue_position for entry in entries), default=0) + 1
+    entries.append(
+        QueueEntry(
+            order_id=order.id,
+            production_days=order.production_days,
+            status=OrderStatus(order.status),
+            queue_position=position,
+            video_boxes=order.video_box_count,
+            plain_boxes=order.box_count - order.video_box_count,
+        ),
+    )
+    ready = compute_ready_dates(entries, calendar=calendar, today=today)
+    return QueueSpot(position=position, ready_date=ready[order.id])
 
 
 async def append_to_queue(session: AsyncSession, order: Order) -> int:

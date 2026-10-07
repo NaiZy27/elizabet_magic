@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -22,12 +23,35 @@ _MAX_DAYS_LOOKAHEAD = 366
 
 
 @dataclass(frozen=True, slots=True)
+class DailyCapacity:
+    """Сколько боксов мастерская собирает за день.
+
+    «2 с видео или 4 без видео» значит: бокс с видео занимает половину дня, без видео —
+    четверть. Поэтому за день можно собрать и 1 с видео + 2 без видео.
+    """
+
+    video_per_day: int = 2
+    plain_per_day: int = 4
+
+    @property
+    def day_units(self) -> int:
+        """Ёмкость дня в общих единицах: наименьшее общее кратное двух лимитов."""
+        return math.lcm(self.video_per_day, self.plain_per_day)
+
+    def box_units(self, *, with_video: bool) -> int:
+        per_day = self.video_per_day if with_video else self.plain_per_day
+        return self.day_units // per_day
+
+
+@dataclass(frozen=True, slots=True)
 class WorkingCalendar:
     """Когда владелица собирает боксы: дни недели и отдельные выходные даты."""
 
     weekdays: frozenset[int] = DEFAULT_WORKING_WEEKDAYS
     #: Отпуск и праздники — конкретные даты, в которые сборки нет.
     holidays: frozenset[dt.date] = field(default_factory=frozenset)
+    #: Дневной лимит сборки. Пусто — заказы идут друг за другом по сроку изготовления.
+    capacity: DailyCapacity | None = None
 
     def is_working(self, day: dt.date) -> bool:
         return day.weekday() in self.weekdays and day not in self.holidays
@@ -41,6 +65,9 @@ class QueueEntry:
     production_days: int
     status: OrderStatus
     queue_position: int
+    #: Сколько боксов снимаем на видео и сколько без — для дневного лимита сборки.
+    video_boxes: int = 0
+    plain_boxes: int = 0
 
 
 def ensure_working_day(day: dt.date, calendar: WorkingCalendar) -> dt.date:
@@ -77,12 +104,18 @@ def compute_ready_dates(
     *,
     calendar: WorkingCalendar,
     today: dt.date | None = None,
+    capacity: DailyCapacity | None = None,
 ) -> dict[int, dt.date]:
     """Расчётные даты готовности для всей очереди.
 
-    Заказы идут строго по queue_position: первый начинается сегодня (или в ближайший
-    рабочий день), каждый следующий — после того, как закончится предыдущий.
+    Заказы идут строго по queue_position. С `capacity` боксы раскладываются по дням
+    в пределах дневного лимита: заказ готов в тот день, куда лёг его последний бокс.
+    Без него — по сроку изготовления: каждый следующий заказ после предыдущего.
     """
+    capacity = capacity or calendar.capacity
+    if capacity is not None:
+        return _ready_dates_by_capacity(entries, calendar=calendar, today=today, capacity=capacity)
+
     cursor = ensure_working_day(today or today_moscow(), calendar)
     ready_dates: dict[int, dt.date] = {}
     for entry in sorted(entries, key=lambda item: item.queue_position):
@@ -90,6 +123,32 @@ def compute_ready_dates(
         ready = shift_working_days(cursor, max(1, entry.production_days) - 1, calendar)
         ready_dates[entry.order_id] = ready
         cursor = next_working_day(ready, calendar)
+    return ready_dates
+
+
+def _ready_dates_by_capacity(
+    entries: Sequence[QueueEntry],
+    *,
+    calendar: WorkingCalendar,
+    today: dt.date | None,
+    capacity: DailyCapacity,
+) -> dict[int, dt.date]:
+    day = ensure_working_day(today or today_moscow(), calendar)
+    used = 0
+    limit = capacity.day_units
+    ready_dates: dict[int, dt.date] = {}
+    for entry in sorted(entries, key=lambda item: item.queue_position):
+        boxes = [True] * entry.video_boxes + [False] * entry.plain_boxes
+        if not boxes:
+            # Заказ без боксов в очереди быть не должен, но место он всё равно займёт.
+            boxes = [False]
+        for with_video in boxes:
+            units = capacity.box_units(with_video=with_video)
+            if used + units > limit:
+                day = next_working_day(day, calendar)
+                used = 0
+            used += units
+        ready_dates[entry.order_id] = day
     return ready_dates
 
 

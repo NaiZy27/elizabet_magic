@@ -17,6 +17,7 @@ from core import labels
 from core.clock import format_date, format_date_short, format_datetime, format_datetime_short
 from core.money import format_rubles
 from core.text import pluralize, truncate
+from web import charts
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -55,6 +56,31 @@ def _yes_no(value: Any) -> str:
     return "Да" if value else "Нет"
 
 
+WEEKDAYS_SHORT = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
+MONTHS_SHORT = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+
+
+def _weekday(value: dt.date | int) -> str:
+    """«пн» — по дате или по номеру дня недели."""
+    index = value if isinstance(value, int) else value.weekday()
+    return WEEKDAYS_SHORT[index]
+
+
+def _day_month(value: dt.date) -> str:
+    """«6 окт»."""
+    return f"{value.day} {MONTHS_SHORT[value.month - 1]}"
+
+
+def _short_rubles(value: int | None) -> str:
+    """Для подписей на графиках: 1 250 000 коп. -> «12,5 тыс»."""
+    rubles = (value or 0) / 100
+    if rubles >= 1_000_000:
+        return f"{rubles / 1_000_000:.1f} млн".replace(".", ",").replace(",0 ", " ")
+    if rubles >= 1000:
+        return f"{rubles / 1000:.1f} тыс".replace(".", ",").replace(",0 ", " ")
+    return f"{rubles:.0f} ₽"
+
+
 templates.env.filters.update(
     {
         "rubles": _rubles,
@@ -76,6 +102,20 @@ templates.env.filters.update(
         "receipt_provider": labels.receipt_provider_label,
         "admin_role": labels.admin_role_label,
         "pluralize_ru": pluralize,
+        "ru_weekday": _weekday,
+        "ru_day_month": _day_month,
+        "short_rubles": _short_rubles,
+    },
+)
+
+templates.env.globals.update(
+    {
+        "chart_bars": charts.bars,
+        "nice_ceiling": charts.nice_ceiling,
+        "chart_donut": charts.donut,
+        "sparkline": charts.sparkline,
+        "pct": charts.percent,
+        "palette": charts.PALETTE,
     },
 )
 

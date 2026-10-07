@@ -60,8 +60,17 @@ def current_environment() -> ProviderEnvironment:
 
 
 def payment_url(payment: Payment) -> str:
-    """Ссылка, которую бот даёт клиенту. Id платежа в адресе не светится."""
+    """Ссылка, которую бот даёт клиенту. Id платежа в адресе не светится.
+
+    С Робокассой ссылка ведёт на /pay/<токен>/go: сервер проверяет, что счёт ещё
+    действует, и сразу перенаправляет клиента в Робокассу — без промежуточной
+    страницы. Подписанную ссылку Робокассы в кнопку не кладём: она устарела бы
+    после отмены или изменения заказа. Заглушке нужна страница с кнопкой
+    «оплачено», поэтому она остаётся на /pay/<токен>.
+    """
     base = get_settings().public_base_url
+    if payment.provider == PaymentProvider.ROBOKASSA:
+        return f"{base}/pay/{payment.public_token}/go"
     return f"{base}/pay/{payment.public_token}"
 
 

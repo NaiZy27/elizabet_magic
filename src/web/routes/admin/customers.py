@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from core.db import folded
 from core.enums import OrderStatus
 from core.models import Customer, Order, Payment
+from core.services import analytics
 from web.security import CurrentOwner, DbSession, csrf_token
 from web.templating import render
 
@@ -73,6 +74,7 @@ async def customers_page(
         "admin/customers.html",
         {
             "rows": rows,
+            "summary": await analytics.customer_summary(session),
             "q": query,
             "page": page,
             "pages": max(1, ((total or 0) + PAGE_SIZE - 1) // PAGE_SIZE),

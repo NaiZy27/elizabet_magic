@@ -38,8 +38,8 @@ class OwnerPhoto(StatesGroup):
     waiting = State()
 
 
-#: Шагов у одного бокса — показывается как «Бокс 2 · шаг 3 из 6».
-BOX_STEPS = 6
+#: Шагов у одного бокса — показывается как «Бокс 2 · шаг 3 из 4».
+BOX_STEPS = 4
 
 #: Ключи данных FSM.
 UI_MESSAGE_ID = "ui_message_id"
@@ -83,3 +83,13 @@ BOX_KEYS = (
 
 #: Бокс, для которого владелица присылает фото.
 PHOTO_PRODUCT_ID = "photo_product_id"
+
+
+class ReviewForm(StatesGroup):
+    """Клиент пишет отзыв."""
+
+    waiting = State()
+
+
+#: К какому заказу отзыв.
+REVIEW_ORDER_ID = "review_order_id"

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.enums import AddonChargeMode
@@ -52,6 +53,8 @@ class Product(IdMixin, TimestampMixin, SortableMixin, Base):
     extra_spoon_price_kopecks: Mapped[int | None] = money(nullable=True, default=None)
     #: Потолок числа ложечек при докупке.
     max_spoon_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    #: Удалено из панели, но есть в старых заказах: в каталоге и в боте не показываем.
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     variants: Mapped[list[ProductVariant]] = relationship(
         back_populates="product",
@@ -96,6 +99,8 @@ class ProductVariant(IdMixin, TimestampMixin, SortableMixin, Base):
     length_cm: Mapped[int | None] = mapped_column(Integer, default=None)
     width_cm: Mapped[int | None] = mapped_column(Integer, default=None)
     height_cm: Mapped[int | None] = mapped_column(Integer, default=None)
+    #: Удалено из панели, но есть в старых заказах: в каталоге и в боте не показываем.
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     product: Mapped[Product] = relationship(back_populates="variants")
     order_items: Mapped[list[OrderItem]] = relationship(back_populates="variant")
@@ -127,6 +132,8 @@ class Addon(IdMixin, TimestampMixin, SortableMixin, Base):
     )
     #: Насколько услуга удлиняет сборку. Видео — +1 рабочий день.
     extra_production_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    #: Удалено из панели, но есть в старых заказах: в каталоге и в боте не показываем.
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     def __repr__(self) -> str:
         return f"<Addon {self.code}>"

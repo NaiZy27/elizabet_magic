@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
-)
+from aiogram.types import DisabledButton, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.callbacks import OwnerPhotoCB
+from bot.callbacks import MenuCB, OwnerPhotoCB, ReviewAdminCB
+from bot.keyboards.common import DANGER, SUCCESS, button, menu_button
+from core.config import get_settings
 from core.models import Product
 from core.text import truncate
 
@@ -23,14 +20,57 @@ BTN_PANEL = "🖥 Панель заказов"
 OWNER_BUTTONS = frozenset({BTN_PHOTO, BTN_PANEL})
 
 
-def owner_menu() -> ReplyKeyboardMarkup:
-    """Постоянная клавиатура владелицы. Кнопки «Заказать бокс» здесь нет."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=BTN_PHOTO), KeyboardButton(text=BTN_PANEL)],
-        ],
-        resize_keyboard=True,
+def owner_menu() -> InlineKeyboardMarkup:
+    """Меню владелицы внутри сообщения. Кнопки «Заказать бокс» здесь нет."""
+    from core.services.payments import is_button_url
+
+    builder = InlineKeyboardBuilder()
+    builder.row(menu_button("⭐ Отзывы", "o_reviews"), menu_button(BTN_PHOTO, "o_photo"))
+    url = f"{get_settings().admin_base_url}/admin/board"
+    if is_button_url(url):
+        builder.row(InlineKeyboardButton(text=BTN_PANEL, url=url))
+    return builder.as_markup()
+
+
+def to_owner_menu() -> InlineKeyboardButton:
+    return InlineKeyboardButton(text="← Меню", callback_data=MenuCB(section="o_home").pack())
+
+
+def review_browser(
+    *,
+    index: int,
+    total: int,
+    review_id: int,
+    has_photo: bool,
+    posted: bool,
+) -> InlineKeyboardMarkup:
+    """Листалка отзывов. Счётчик — неактивная кнопка (Bot API 10.3)."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        button("◀", ReviewAdminCB(action="page", index=max(0, index - 1)).pack()),
+        InlineKeyboardButton(text=f"{index + 1} / {total}", disabled=DisabledButton()),
+        button("▶", ReviewAdminCB(action="page", index=min(total - 1, index + 1)).pack()),
     )
+    builder.row(
+        button(
+            "✅ Уже в канале · ещё раз" if posted else "📢 Отправить в канал",
+            ReviewAdminCB(action="post", index=index, review_id=review_id).pack(),
+            style=None if posted else SUCCESS,
+        ),
+    )
+    extra = []
+    if has_photo:
+        extra.append(button("🖼 Фото", ReviewAdminCB(action="photo", review_id=review_id).pack()))
+    extra.append(
+        button(
+            "🗑 Скрыть",
+            ReviewAdminCB(action="hide", index=index, review_id=review_id).pack(),
+            style=DANGER,
+        ),
+    )
+    builder.row(*extra)
+    builder.row(to_owner_menu())
+    return builder.as_markup()
 
 
 def products(items: Sequence[Product]) -> InlineKeyboardMarkup:
@@ -43,6 +83,7 @@ def products(items: Sequence[Product]) -> InlineKeyboardMarkup:
             callback_data=OwnerPhotoCB(action="pick", product_id=product.id).pack(),
         )
     builder.adjust(1)
+    builder.row(to_owner_menu())
     return builder.as_markup()
 
 

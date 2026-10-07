@@ -98,6 +98,68 @@ async def show(
     return sent.message_id
 
 
+async def adopt(event: TelegramObject, state: FSMContext) -> None:
+    """Сделать сообщение, по кнопке которого нажали, сообщением сценария.
+
+    Так «Заказать бокс» из меню продолжает оформление в том же сообщении, а не
+    присылает новое. Фото и прочие сообщения без текста не подходят — их не перепишешь.
+    """
+    if not isinstance(event, CallbackQuery) or not isinstance(event.message, Message):
+        return
+    if event.message.text is None:
+        return
+    await state.update_data(
+        {UI_MESSAGE_ID: event.message.message_id, UI_TEXT: event.message.html_text},
+    )
+
+
+async def reply(
+    event: TelegramObject,
+    *,
+    text: str,
+    keyboard: InlineKeyboardMarkup | None = None,
+) -> None:
+    """Ответ вне сценария: по кнопке — переписать её сообщение, на текст — новым сообщением."""
+    bot, chat_id = target(event)
+    if bot is None or chat_id is None:
+        return
+    if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
+        if event.message.text is not None:
+            try:
+                await event.message.edit_text(
+                    text,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=True,
+                )
+                return
+            except TelegramBadRequest as error:
+                if "message is not modified" in str(error):
+                    return
+                logger.debug("Не получилось переписать сообщение меню: %s", error)
+        await strip_buttons(bot, chat_id, event.message.message_id)
+    await bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
+async def consume(message: Message, state: FSMContext) -> None:
+    """Ответ клиента принят: убрать его сообщение, чтобы шаги шли в одном сообщении бота.
+
+    Бот вправе удалять входящие сообщения в личном чате. Не вышло — тогда ответ
+    остаётся в чате, а следующий шаг появится новым сообщением под ним.
+    """
+    if message.bot is None:
+        return
+    try:
+        await message.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except TelegramBadRequest as error:
+        logger.debug("Не удалось убрать ответ клиента: %s", error)
+        await retire(message, state)
+
+
 async def retire(
     event: TelegramObject,
     state: FSMContext,

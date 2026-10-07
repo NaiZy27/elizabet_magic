@@ -1,0 +1,69 @@
+{% extends "admin/base.html" %}
+{% from "admin/_ui.html" import tabs %}
+{% block title %}Отзывы{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-left">
+    <h1>Клиенты</h1>
+    {{ tabs([('/admin/customers', 'Покупатели', False), ('/admin/reviews', 'Отзывы', True)]) }}
+  </div>
+</div>
+
+<div class="toolbar">
+  <nav class="tabs">
+    {% for key, label in filters.items() %}
+      <a href="/admin/reviews?show={{ key }}" class="{{ 'on' if show == key }}">{{ label }} <span class="count">{{ counts[key] }}</span></a>
+    {% endfor %}
+  </nav>
+</div>
+
+{% if not channel_ready and show == 'new' %}
+  <p class="note">Канал для отзывов ещё не подключён: добавьте бота администратором в канал — тогда появится кнопка «В канал».</p>
+{% endif %}
+
+{% if reviews %}
+  <div class="review-grid">
+    {% for review in reviews %}
+      <article class="review-card" style="animation-delay: {{ [loop.index0, 10] | min * 40 }}ms">
+        {% if review.photo_file_id %}
+          <img src="/admin/media/review/{{ review.id }}" alt="Фото к отзыву" loading="lazy">
+        {% endif %}
+        {% if review.text %}<blockquote>{{ review.text }}</blockquote>{% endif %}
+        <div class="review-meta">
+          <span><b>{{ author(review) }}</b>{% if review.customer and review.customer.username %} · @{{ review.customer.username }}{% endif %}</span>
+          <span>{{ review.created_at | ru_datetime_short }}</span>
+        </div>
+        {% if review.order %}
+          <a class="small" href="/admin/orders/{{ review.order.id }}">Заказ {{ review.order.admin_label }} →</a>
+        {% endif %}
+        <div class="review-actions">
+          {% if show == 'hidden' %}
+            <form method="post" action="/admin/reviews/{{ review.id }}/restore">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="secondary small" type="submit">Вернуть</button>
+            </form>
+          {% else %}
+            {% if channel_ready %}
+              <form method="post" action="/admin/reviews/{{ review.id }}/post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="small {{ 'secondary' if review.posted_at }}" type="submit">{{ 'Ещё раз в канал' if review.posted_at else 'В канал' }}</button>
+              </form>
+            {% endif %}
+            <form method="post" action="/admin/reviews/{{ review.id }}/hide">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="ghost small" type="submit">Скрыть</button>
+            </form>
+          {% endif %}
+        </div>
+        {% if review.posted_at %}<span class="status on small">в канале с {{ review.posted_at | ru_datetime_short }}</span>{% endif %}
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card"><div class="empty">
+    <b>{{ 'Новых отзывов нет' if show == 'new' else ('Пока ничего не публиковали' if show == 'posted' else 'Скрытых нет') }}</b>
+    Клиенты оставляют отзывы в боте — они сразу появятся здесь.
+  </div></div>
+{% endif %}
+{% endblock %}

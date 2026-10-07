@@ -1,83 +1,87 @@
 {% extends "admin/base.html" %}
-{% block title %}Доска заказов{% endblock %}
+{% from "admin/_ui.html" import tabs, load_card %}
+{% block title %}Заказы{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">Рабочая доска</div>
+<div class="page-head">
+  <div class="head-left">
     <h1>Заказы</h1>
-    <p>Карточку можно тянуть за любое место. Перенос между колонками меняет этап и уведомляет
-      клиента, перетаскивание внутри «В очереди» и «Собирается» меняет порядок сборки —
-      даты готовности пересчитываются сразу.</p>
-  </div>
-  <div class="actions">
-    <a class="button ghost" href="/admin/orders">Список заказов</a>
+    {{ tabs([('/admin/board', 'Доска', True), ('/admin/board/calendar', 'Календарь', False), ('/admin/orders', 'Список', False)]) }}
   </div>
 </div>
 
-<section class="grid">
-  <div class="card metric"><span class="muted">В очереди</span><strong>{{ metrics.queued }}</strong><small>ждут сборки</small></div>
-  <div class="card metric"><span class="muted">Собрать сегодня</span><strong>{{ metrics.ready_today }}</strong><small>по расчётной дате</small></div>
-  <div class="card metric"><span class="muted">Собрать завтра</span><strong>{{ metrics.ready_tomorrow }}</strong><small>следующий рабочий день</small></div>
-  <div class="card metric"><span class="muted">Готовы к отправке</span><strong>{{ metrics.ready_to_ship }}</strong><small>отвезти в службу</small></div>
+<section class="tiles board-tiles">
+  <div class="tile hero">
+    <span class="tile-label">В очереди</span>
+    <span class="tile-value" data-count>{{ metrics.queued }}</span>
+    <span class="tile-note">{{ plan.queue_boxes }} {{ plan.queue_boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}{% if plan.queue_video_boxes %} · {{ plan.queue_video_boxes }} с видео{% endif %}</span>
+  </div>
+  <div class="tile"><span class="tile-label">Собрать сегодня</span><span class="tile-value">{{ metrics.ready_today }}</span></div>
+  <div class="tile"><span class="tile-label">Завтра</span><span class="tile-value">{{ metrics.ready_tomorrow }}</span></div>
+  <div class="tile blush"><span class="tile-label">К отправке</span><span class="tile-value">{{ metrics.ready_to_ship }}</span></div>
   {% if admin.is_owner %}
-  <div class="card metric"><span class="muted">Оплачено за месяц</span><strong>{{ metrics.month_revenue_kopecks | rubles }}</strong><small>с начала месяца</small></div>
+  <div class="tile"><span class="tile-label">За месяц</span><span class="tile-value" style="font-size:30px" data-count>{{ metrics.month_revenue_kopecks | rubles }}</span></div>
   {% endif %}
 </section>
 
-<div class="board-shell">
-  <section class="kanban-board" aria-label="Этапы заказов"
+{{ load_card(plan) }}
+
+{# На телефоне колонки листаются слайдером, эти кнопки — быстрый переход к колонке. #}
+<nav class="col-switch" data-col-switch aria-label="Этапы">
+  {% for column in columns %}
+    <button type="button" data-target="{{ column.status.value }}" class="{{ 'on' if loop.first }}">
+      {{ column.label }} <span class="count">{{ column.count }}</span>
+    </button>
+  {% endfor %}
+</nav>
+
+<div class="board-shell" data-board-shell>
+  <section class="kanban-board" aria-label="Этапы заказов" style="--cols: {{ columns | length }}"
            data-board
            data-csrf="{{ csrf_token }}"
            data-queue-statuses='{{ queue_statuses | tojson }}'>
     {% for column in columns %}
-      <div class="kanban-column" data-status="{{ column.status.value }}">
+      <div class="kanban-column" data-status="{{ column.status.value }}" id="col-{{ column.status.value }}">
         <div class="column-head">
           <div class="column-title"><span class="column-dot"></span>{{ column.label }}</div>
           <span class="column-count">{{ column.count }}</span>
         </div>
         {% if column.status.value == 'completed' %}
-          <p class="column-hint">Уходят с доски через {{ keep_completed_hours }} ч. Остаются в списке заказов.</p>
+          <p class="column-hint">Уходят с доски через {{ keep_completed_hours }} ч</p>
         {% endif %}
         <div class="column-cards">
           {% for card in column.cards %}
             {% set order = card.order %}
-            <article class="order-card" data-order-id="{{ order.id }}">
-              {# Вся карточка — область перетаскивания. Кликабельны только ссылки. #}
-              <div class="order-number">
-                <span>
+            <article class="order-card {{ 'is-late' if card.is_late }}" data-order-id="{{ order.id }}" data-href="/admin/orders/{{ order.id }}">
+              <div class="oc-top">
+                <span class="oc-num">
                   <span class="queue-position" {% if card.position is none %}hidden{% endif %}>{{ card.position or '' }}</span>
                   <a class="order-link" href="/admin/orders/{{ order.id }}" draggable="false">{{ order.admin_label }}</a>
                 </span>
-                <span class="order-date">{{ order.created_at | ru_datetime_short }}</span>
+                <span>{{ order.created_at | ru_datetime_short }}</span>
               </div>
-              <h3 class="customer-name">{{ order.recipient_name or order.customer.display_name }}</h3>
-              <p class="order-product">
+              <div class="oc-name">{{ order.recipient_name or order.customer.display_name }}</div>
+              <div class="oc-items">
                 {% for item in order.items %}
                   {{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}{% if not loop.last %}<br>{% endif %}
                 {% else %}
                   Состав не указан
                 {% endfor %}
-              </p>
-              <p class="order-ready {{ 'late' if card.is_late }}" {% if not card.ready_date %}hidden{% endif %}>
-                {% if card.ready_date %}Готов к {{ card.ready_date | ru_date_short }}{% endif %}
-              </p>
-              <div class="order-flags">
-                {% if order.video_box_count %}
-                  <span class="badge queued">🎥 Видео{% if order.box_count > 1 %}: {{ order.video_box_count }} из {{ order.box_count }}{% endif %}</span>
-                {% endif %}
-                {% if order.has_wishes %}<span class="badge">Есть пожелания</span>{% endif %}
-                {% if order.admin_note %}<span class="badge">Есть заметка</span>{% endif %}
-                {% if card.is_late %}<span class="badge cancelled">⚠️ Не успеваем</span>{% endif %}
               </div>
-              <div class="order-meta">
-                <span class="order-price">{% if admin.is_owner %}{{ order.total_kopecks | rubles }}{% else %}{{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}{% endif %}</span>
-                <span class="order-city">{{ (order.pickup_snapshot or {}).get('city') or 'Город не выбран' }}</span>
+              <div class="oc-tags">
+                <span class="tag accent order-ready {{ 'late' if card.is_late }}" {% if not card.ready_date %}hidden{% endif %}>{% if card.ready_date %}к {{ card.ready_date | ru_date_short }}{% endif %}</span>
+                {% if order.video_box_count %}<span class="tag accent">Видео{% if order.box_count > 1 %} {{ order.video_box_count }}/{{ order.box_count }}{% endif %}</span>{% endif %}
+                {% if order.has_wishes %}<span class="tag">Пожелания</span>{% endif %}
+                {% if order.admin_note %}<span class="tag">Заметка</span>{% endif %}
+                {% if card.is_late %}<span class="tag bad">Не успеваем</span>{% endif %}
               </div>
-              <a class="order-open" href="/admin/orders/{{ order.id }}" draggable="false">Открыть заказ →</a>
+              <div class="oc-foot">
+                <span class="oc-price">{% if admin.is_owner %}{{ order.total_kopecks | rubles }}{% else %}{{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}{% endif %}</span>
+                <span class="oc-city">{{ (order.pickup_snapshot or {}).get('city') or '' }}</span>
+              </div>
             </article>
           {% else %}
-            <div class="drop-empty">Перетащите заказ сюда</div>
+            <div class="drop-empty">Пусто</div>
           {% endfor %}
         </div>
       </div>
@@ -89,5 +93,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', path='board.js') }}" defer></script>
+<script src="{{ url_for('static', path='board.js') }}?v=4" defer></script>
 {% endblock %}

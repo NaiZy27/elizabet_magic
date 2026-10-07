@@ -10,13 +10,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.enums import VIDEO_ADDON_CODE, AddonChargeMode
 from core.errors import NotFoundError, ValidationError
-from core.models import Addon, Color, Product, ProductVariant
+from core.clock import now_utc
+from core.models import Addon, Color, OrderAddon, OrderItem, Product, ProductVariant
 from core.text import spoons_phrase
 
 # --- что просит клиент ---
@@ -187,13 +188,100 @@ async def list_active_products(session: AsyncSession) -> list[Product]:
 
 
 async def list_products_for_admin(session: AsyncSession) -> list[Product]:
-    """Все боксы, включая выключенные, — в админке видно всё."""
+    """Все боксы, включая выключенные, — в админке видно всё, кроме удалённых."""
     result = await session.scalars(
         select(Product)
         .options(selectinload(Product.variants))
+        .where(Product.archived_at.is_(None))
         .order_by(Product.sort_order, Product.id),
     )
     return list(result)
+
+
+def visible_variants(variants: Sequence[ProductVariant]) -> list[ProductVariant]:
+    """Варианты для панели: всё, кроме удалённых."""
+    return sorted(
+        (variant for variant in variants if variant.archived_at is None),
+        key=lambda item: (item.sort_order, item.id),
+    )
+
+
+# --- удаление из панели ---
+#
+# Позиция, которой ни разу не было в заказе, удаляется из базы. Если в заказах она
+# есть, удалить строку нельзя — на неё ссылается история, — и позиция уходит в архив:
+# выключается, пропадает из панели и бота, а артикул/код освобождается для новой.
+
+_ARCHIVED_SUFFIX = "~"
+
+
+def _free_unique(value: str, row_id: int, limit: int) -> str:
+    suffix = f"{_ARCHIVED_SUFFIX}{row_id}"
+    return f"{value[: limit - len(suffix)]}{suffix}"
+
+
+async def _variant_in_orders(session: AsyncSession, variant_ids: Sequence[int]) -> bool:
+    if not variant_ids:
+        return False
+    used = await session.scalar(
+        select(func.count(OrderItem.id)).where(OrderItem.variant_id.in_(list(variant_ids))),
+    )
+    return bool(used)
+
+
+def _archive_variant(variant: ProductVariant) -> None:
+    variant.archived_at = now_utc()
+    variant.is_active = False
+    variant.sku = _free_unique(variant.sku, variant.id, 64)
+
+
+async def delete_variant(session: AsyncSession, variant: ProductVariant) -> bool:
+    """Удалить вариант. True — удалён совсем, False — ушёл в архив."""
+    if await _variant_in_orders(session, [variant.id]):
+        _archive_variant(variant)
+        await session.flush()
+        return False
+    await session.execute(delete(ProductVariant).where(ProductVariant.id == variant.id))
+    return True
+
+
+async def delete_product(session: AsyncSession, product: Product) -> bool:
+    """Удалить бокс вместе с вариантами. True — удалён совсем, False — ушёл в архив."""
+    variants = list(
+        await session.scalars(select(ProductVariant).where(ProductVariant.product_id == product.id)),
+    )
+    if await _variant_in_orders(session, [variant.id for variant in variants]):
+        for variant in variants:
+            if variant.archived_at is None:
+                _archive_variant(variant)
+        product.archived_at = now_utc()
+        product.is_active = False
+        product.sku = _free_unique(product.sku, product.id, 64)
+        await session.flush()
+        return False
+    await session.execute(delete(ProductVariant).where(ProductVariant.product_id == product.id))
+    await session.execute(delete(Product).where(Product.id == product.id))
+    return True
+
+
+async def delete_addon(session: AsyncSession, addon: Addon) -> bool:
+    """Удалить доп. услугу. True — удалена совсем, False — ушла в архив."""
+    used = await session.scalar(
+        select(func.count(OrderAddon.id)).where(OrderAddon.addon_id == addon.id),
+    )
+    if used:
+        addon.archived_at = now_utc()
+        addon.is_active = False
+        addon.code = _free_unique(addon.code, addon.id, 32)
+        await session.flush()
+        return False
+    await session.execute(delete(Addon).where(Addon.id == addon.id))
+    return True
+
+
+async def delete_color(session: AsyncSession, color: Color) -> None:
+    """Цвета в заказах хранятся словами, поэтому цвет можно удалить всегда."""
+    await session.execute(delete(Color).where(Color.id == color.id))
 
 
 async def get_product(session: AsyncSession, product_id: int) -> Product:

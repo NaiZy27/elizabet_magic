@@ -1,267 +1,247 @@
 {% extends "admin/base.html" %}
+{% from "admin/_ui.html" import icon %}
 {% block title %}Заказ {{ order.admin_label }}{% endblock %}
 
 {% block content %}
 {% set owner = admin.is_owner %}
-<div class="topline">
+<a class="back" href="/admin/board">{{ icon('back') | safe }}Заказы</a>
+<div class="page-head">
   <div>
-    <div class="eyebrow">Заказ</div>
     <h1>{{ order.admin_label }}</h1>
-    <p>Оформлен {{ order.created_at | ru_datetime }} ·
-      <span class="badge {{ order.status.value }}">{{ order.status.value | order_status }}</span>
-      {% if order.cancel_reason %}<span class="muted">({{ order.cancel_reason.value | cancel_reason }})</span>{% endif %}
-      {% if order.refunded_at %}<span class="badge refunded">Деньги возвращены {{ order.refunded_at | ru_datetime }}</span>{% endif %}
-      {% if order.arrived_at %}<span class="badge shipped">В пункте выдачи с {{ order.arrived_at | ru_datetime }}</span>{% endif %}
-      {% if is_late %}<span class="badge cancelled">⚠️ Не успеваем к обещанной дате</span>{% endif %}
-    </p>
+    <div class="status-hero">
+      <span class="pill"><span class="status {{ order.status.value }}">{{ order.status.value | order_status }}</span></span>
+      {% if ready_date %}<span class="pill">Собрать к {{ ready_date | ru_date_short }}</span>{% endif %}
+      {% if is_late %}<span class="pill"><span class="status bad">Не успеваем</span></span>{% endif %}
+      {% if order.refunded_at %}<span class="pill"><span class="status refunded">Возврат {{ order.refunded_at | ru_datetime_short }}</span></span>{% endif %}
+      {% if order.arrived_at %}<span class="pill"><span class="status shipped">В ПВЗ с {{ order.arrived_at | ru_datetime_short }}</span></span>{% endif %}
+      {% if order.cancel_reason %}<span class="pill muted">{{ order.cancel_reason.value | cancel_reason }}</span>{% endif %}
+      <span class="muted small">от {{ order.created_at | ru_datetime_short }}</span>
+    </div>
   </div>
-  <div class="actions"><a class="button ghost" href="/admin/board">На доску</a></div>
 </div>
 
 <div class="split">
   <div class="stack">
     <section class="card">
-      <h2>Что собрать · {{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}</h2>
-      <p class="video-flag {{ 'yes' if order.video_box_count else 'no' }}">
-        {% if order.video_box_count %}
-          🎥 Видео: ДА — {{ order.video_box_count }} из {{ order.box_count }}
-        {% else %}
-          Видео: НЕТ
-        {% endif %}
-      </p>
+      <div class="card-head">
+        <h2>Состав · {{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}</h2>
+      </div>
+      <div class="video-flag {{ 'yes' if order.video_box_count else 'no' }}">
+        {% if order.video_box_count %}Снять видео: {{ order.video_box_count }} из {{ order.box_count }}{% else %}Без видео{% endif %}
+      </div>
       {% for item in order.items %}
         <div class="box-card">
           <div class="box-head">
-            <strong>{% if order.items | length > 1 %}Бокс {{ loop.index }}. {% endif %}{{ item.name_snapshot }}</strong>
+            <span>{% if order.items | length > 1 %}{{ loop.index }}. {% endif %}{{ item.name_snapshot }}{% if item.quantity > 1 %} × {{ item.quantity }}{% endif %}</span>
             {% if owner %}<span class="muted">{{ item.total_kopecks | rubles }}</span>{% endif %}
           </div>
-          <div class="kv"><span class="muted">Ложечек</span><span>{{ item.spoon_count }}{% if item.quantity > 1 %} · × {{ item.quantity }}{% endif %}</span></div>
-          <div class="kv"><span class="muted">Видео сборки</span>
-            <span>{% if item.has_video %}<span class="badge queued">🎥 Снять видео</span>{% else %}нет{% endif %}</span>
-          </div>
-          <div class="kv"><span class="muted">Любимые цвета</span><span>{{ item.favorite_colors | join(', ') or '—' }}</span></div>
-          <div class="kv"><span class="muted">Не использовать</span><span>{{ item.avoid_colors | join(', ') or '—' }}</span></div>
-          <div class="kv"><span class="muted">Пожелания</span><span style="white-space:pre-line">{{ item.comment or '—' }}</span></div>
+          <div class="kv"><span>Ложечек</span><span>{{ item.spoon_count }}</span></div>
+          {% if item.has_video %}<div class="kv"><span>Видео</span><span><span class="status queued">Снять видео</span></span></div>{% endif %}
+          <div class="kv"><span>Любимые цвета</span><span>{{ item.favorite_colors | join(', ') or '—' }}</span></div>
+          <div class="kv"><span>Не использовать</span><span>{{ item.avoid_colors | join(', ') or '—' }}</span></div>
+          <div class="kv"><span>Пожелания</span><span style="white-space:pre-line">{{ item.comment or '—' }}</span></div>
         </div>
       {% endfor %}
       {% for addon in order.order_addons %}
-        <div class="kv"><span class="muted">На весь заказ</span>
+        <div class="kv" style="margin-top:12px"><span>На весь заказ</span>
           <span>{{ addon.name_snapshot }}{% if owner %} · {{ addon.total_kopecks | rubles }}{% endif %}</span></div>
       {% endfor %}
     </section>
 
+    <section class="card">
+      <h2>Доставка</h2>
+      {% set point = order.pickup_snapshot or {} %}
+      <div class="kv"><span>Получатель</span><span>{{ order.recipient_name }}{% if owner and order.recipient_phone %}, {{ order.recipient_phone }}{% endif %}</span></div>
+      <div class="kv"><span>Служба</span><span>{{ point.get('provider_name') or '—' }}</span></div>
+      <div class="kv"><span>ПВЗ</span><span>{{ point.get('city') or '' }}{% if point.get('name') %}, {{ point.get('name') }}{% endif %}<br><span class="muted">{{ point.get('address') or '' }}</span></span></div>
+      {% if point.get('working_hours') %}<div class="kv"><span>Часы</span><span>{{ point.get('working_hours') }}</span></div>{% endif %}
+      {% for shipment in shipments %}
+        <div class="kv"><span>Отправление</span>
+          <span><span class="status">{{ shipment.status.value | shipment_status }}</span>
+            {% if shipment.track_number %} <code>{{ shipment.track_number }}</code>{% endif %}</span>
+        </div>
+      {% endfor %}
+    </section>
+
     {% if owner %}
     <section class="card">
-      <h2>Стоимость</h2>
-      <div class="kv"><span class="muted">Боксы и услуги</span><strong>{{ order.subtotal_kopecks | rubles }}</strong></div>
-      <div class="kv"><span class="muted">Доставка</span><strong>{{ order.delivery_kopecks | rubles }}</strong></div>
-      <div class="kv"><span class="muted">Итого</span><strong>{{ order.total_kopecks | rubles }}</strong></div>
-      <div class="kv"><span class="muted">Оплата</span>
+      <h2>Деньги</h2>
+      <div class="kv"><span>Боксы и услуги</span><span>{{ order.subtotal_kopecks | rubles }}</span></div>
+      <div class="kv"><span>Доставка</span><span>{{ order.delivery_kopecks | rubles }}</span></div>
+      <div class="kv"><span>Оплата</span>
         <span>
-          {% if order.refunded_at %}
-            <span class="badge refunded">Возвращена</span> {{ order.refunded_at | ru_datetime }}
-          {% elif order.paid_at %}
-            <span class="badge paid">Оплачен</span> {{ order.paid_at | ru_datetime }}
-          {% else %}
-            <span class="badge waiting_payment">Не оплачен</span>
-            {% if order.expires_at %}<span class="muted">до {{ order.expires_at | ru_datetime }}</span>{% endif %}
-          {% endif %}
+          {% if order.refunded_at %}<span class="status refunded">Возвращена {{ order.refunded_at | ru_datetime_short }}</span>
+          {% elif order.paid_at %}<span class="status paid">Оплачен {{ order.paid_at | ru_datetime_short }}</span>
+          {% else %}<span class="status waiting_payment">Не оплачен{% if order.expires_at %} · до {{ order.expires_at | ru_datetime_short }}{% endif %}</span>{% endif %}
         </span>
       </div>
-    </section>
-    {% endif %}
+      <div class="total-line"><span class="muted">Итого</span><b>{{ order.total_kopecks | rubles }}</b></div>
 
-    <section class="card">
-      <h2>Куда доставить</h2>
-      {% set point = order.pickup_snapshot or {} %}
-      <div class="kv"><span class="muted">Служба</span><span>{{ point.get('provider_name') or '—' }}</span></div>
-      <div class="kv"><span class="muted">Город</span><span>{{ point.get('city') or '—' }}</span></div>
-      <div class="kv"><span class="muted">Пункт выдачи</span><span>{{ point.get('name') or '—' }}<br>{{ point.get('address') or '' }}</span></div>
-      <div class="kv"><span class="muted">Режим работы</span><span>{{ point.get('working_hours') or '—' }}</span></div>
-      {% if owner %}
-        <div class="kv"><span class="muted">Доставка стоит</span><span>{{ order.delivery_kopecks | rubles }}</span></div>
-      {% endif %}
-      <div class="kv"><span class="muted">Получатель</span><span>{{ order.recipient_name }}{% if owner %}, {{ order.recipient_phone }}{% endif %}</span></div>
-      {% for shipment in shipments %}
-        <div class="kv"><span class="muted">Отправление</span>
-          <span>
-            <span class="badge">{{ shipment.status.value | shipment_status }}</span>
-            {% if shipment.track_number %}<code>{{ shipment.track_number }}</code>{% endif %}
-          </span>
+      <details class="fold plain" style="margin-top:16px">
+        <summary>Платежи и чеки <span class="muted">{{ payments | length }} · {{ receipts | length }}</span></summary>
+        <div class="fold-body">
+          {% for payment in payments %}
+            <div class="kv"><span>Счёт №{{ payment.id }}</span>
+              <span>{{ payment.amount_kopecks | rubles }} · {{ payment.provider.value | payment_provider }}
+                · <span class="status {{ payment.status.value }}">{{ payment.status.value | payment_status }}</span>
+                <span class="muted small">{{ payment.created_at | ru_datetime_short }}</span></span>
+            </div>
+          {% else %}
+            <p class="muted">Попыток оплаты ещё не было.</p>
+          {% endfor %}
+          {% for receipt in receipts %}
+            <div class="kv"><span>Чек №{{ receipt.external_id or receipt.id }}</span>
+              <span>
+                <span class="status {{ receipt.status.value }}">{{ receipt.status.value | receipt_status }}</span>
+                · {{ receipt.amount_kopecks | rubles }} · {{ receipt.provider.value | receipt_provider }}
+                {% if receipt.url %}· <a href="{{ receipt.url }}" rel="noreferrer" target="_blank">открыть</a>{% endif %}
+                {% if receipt.buyer_email %}<br><span class="muted small">отправлен на {{ receipt.buyer_email }}</span>{% endif %}
+                {% if receipt.annul_reason %}<br><span class="muted small">аннулирован: {{ receipt.annul_reason }}</span>{% endif %}
+              </span>
+            </div>
+          {% endfor %}
+          {% if order.paid_at and not order.refunded_at %}
+            <form method="post" action="/admin/orders/{{ order.id }}/receipt" style="margin-top:16px">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <div class="form-row">
+                <label for="receipt_url">Чек из «Мой налог»</label>
+                <input id="receipt_url" name="url" placeholder="https://lknpd.nalog.ru/…">
+              </div>
+              <div class="form-row">
+                <input name="external_id" placeholder="Номер чека (необязательно)">
+                <span class="helptext">Ссылка уйдёт клиенту в бот.</span>
+              </div>
+              <button class="secondary" type="submit">Сохранить чек</button>
+            </form>
+          {% endif %}
         </div>
-      {% endfor %}
-    </section>
-
-    {% if owner %}
-    <section class="card">
-      <h2>Платежи</h2>
-      {% if payments %}
-        <table>
-          <thead><tr><th>Счёт</th><th>Способ</th><th>Сумма</th><th>Состояние</th><th>Создан</th></tr></thead>
-          <tbody>
-            {% for payment in payments %}
-              <tr>
-                <td>№{{ payment.id }}</td>
-                <td>{{ payment.provider.value | payment_provider }}</td>
-                <td>{{ payment.amount_kopecks | rubles }}</td>
-                <td><span class="badge {{ payment.status.value }}">{{ payment.status.value | payment_status }}</span></td>
-                <td>{{ payment.created_at | ru_datetime }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <div class="empty">Попыток оплаты ещё не было.</div>
-      {% endif %}
-    </section>
-
-    <section class="card">
-      <h2>Чеки</h2>
-      {% for receipt in receipts %}
-        <div class="kv"><span class="muted">Чек №{{ receipt.external_id or receipt.id }}</span>
-          <span>
-            <span class="badge {{ receipt.status.value }}">{{ receipt.status.value | receipt_status }}</span>
-            {{ receipt.amount_kopecks | rubles }} · {{ receipt.provider.value | receipt_provider }}
-            {% if receipt.url %}· <a href="{{ receipt.url }}" rel="noreferrer" target="_blank">открыть</a>{% endif %}
-            {% if receipt.buyer_email %}<br><span class="muted">отправлен на {{ receipt.buyer_email }}</span>{% endif %}
-            {% if receipt.annul_reason %}<br><span class="muted">аннулирован: {{ receipt.annul_reason }}</span>{% endif %}
-          </span>
-        </div>
-      {% else %}
-        <div class="empty">Чека пока нет — он появится после оплаты.</div>
-      {% endfor %}
-      {% if order.paid_at and not order.refunded_at %}
-        <form method="post" action="/admin/orders/{{ order.id }}/receipt" class="form-row" style="margin-top:12px">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label for="receipt_url">Чек пробит вручную в «Мой налог»</label>
-          <input id="receipt_url" name="url" placeholder="https://lknpd.nalog.ru/api/v1/receipt/…/print">
-          <input name="external_id" placeholder="Номер чека (необязательно)" style="margin-top:8px">
-          <span class="helptext">Ссылка сохранится у заказа и уйдёт клиенту в бот.</span>
-          <button class="secondary" type="submit" style="margin-top:10px">Сохранить чек</button>
-        </form>
-      {% endif %}
+      </details>
     </section>
     {% endif %}
   </div>
 
   <div class="stack">
     <section class="card">
-      <h2>Управление заказом</h2>
-
+      <h2>Этап</h2>
       {% if order.status.value not in ('draft', 'cancelled') %}
       <form method="post" action="/admin/orders/{{ order.id }}/status" class="form-row">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="status">Этап</label>
-        <select id="status" name="status">
+        <select id="status" name="status" aria-label="Этап">
           {% for item in statuses %}
             {% if owner or item.value != 'cancelled' %}
               <option value="{{ item.value }}" {{ 'selected' if order.status == item }}>{{ item.value | order_status }}</option>
             {% endif %}
           {% endfor %}
         </select>
-        <button type="submit" style="margin-top:10px">Сменить этап</button>
+        <button class="block" type="submit" style="margin-top:8px">Сменить этап</button>
       </form>
+      {% else %}
+        <p class="muted">Этап больше не меняется.</p>
       {% endif %}
 
       {% if order.status.value == 'shipped' and not order.arrived_at %}
         <form method="post" action="/admin/orders/{{ order.id }}/arrived" class="form-row">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label>Посылка приехала в пункт выдачи?</label>
-          <button class="secondary" type="submit">📦 Прибыл в ПВЗ — сообщить клиенту</button>
+          <button class="secondary block" type="submit">Прибыл в ПВЗ — сообщить клиенту</button>
         </form>
       {% endif %}
 
-      {% if owner %}
-      <form method="post" action="/admin/orders/{{ order.id }}/production-days" class="form-row">
+      <form method="post" action="/admin/orders/{{ order.id }}/note">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="production_days">Срок изготовления, рабочих дней</label>
-        <input id="production_days" name="production_days" type="number" min="1" max="60" value="{{ order.production_days }}">
-        <span class="helptext">Расчётная дата готовности:
-          {{ ready_date | ru_date if ready_date else 'не считается на этом этапе' }}</span>
-        <button class="secondary" type="submit" style="margin-top:10px">Сохранить срок</button>
-      </form>
-
-      <form method="post" action="/admin/orders/{{ order.id }}/promised-date" class="form-row">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="promised_date">Обещали клиенту</label>
-        <input id="promised_date" name="promised_date" type="date"
-               value="{{ order.promised_ready_date.isoformat() if order.promised_ready_date else '' }}">
-        <span class="helptext">Эта дата не пересчитывается сама — её назвали клиенту.</span>
-        <button class="secondary" type="submit" style="margin-top:10px">Сохранить дату</button>
-      </form>
-      {% else %}
-        <div class="kv"><span class="muted">Собрать к</span><span>{{ ready_date | ru_date if ready_date else '—' }}</span></div>
-      {% endif %}
-
-      <form method="post" action="/admin/orders/{{ order.id }}/note" class="form-row">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="note">Заметка для сборки</label>
+        <label class="label" for="note">Заметка для сборки</label>
         <textarea id="note" name="note" placeholder="Видна только в панели">{{ order.admin_note or '' }}</textarea>
-        <button class="secondary" type="submit" style="margin-top:10px">Сохранить заметку</button>
+        <button class="secondary small" type="submit" style="margin-top:8px">Сохранить заметку</button>
       </form>
-
-      {% if owner and can_refund %}
-        <form method="post" action="/admin/orders/{{ order.id }}/refund" class="form-row">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label for="refund_reason">Вернуть деньги</label>
-          <input id="refund_reason" name="reason" placeholder="Причина (увидите в истории)">
-          <label class="inline-check" style="margin-top:8px">
-            <input type="checkbox" name="confirm" value="true">
-            Деньги клиенту уже вернула и аннулировала чек в «Мой налог»
-          </label>
-          <span class="helptext">Пока возврат делается вручную: эта кнопка фиксирует его, отменяет заказ
-            и сообщает клиенту. Автоматический возврат появится с подключением Робокассы.</span>
-          <button class="danger" type="submit" style="margin-top:10px">Оформить возврат</button>
-        </form>
-      {% elif owner and order.status.value not in ('cancelled', 'completed') %}
-        <form method="post" action="/admin/orders/{{ order.id }}/cancel" class="form-row">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label for="reason">Отменить заказ</label>
-          <input id="reason" name="reason" placeholder="Причина (запишется в историю)">
-          <button class="danger" type="submit" style="margin-top:10px">Отменить заказ</button>
-        </form>
-      {% endif %}
     </section>
 
     <section class="card">
       <h2>Клиент</h2>
-      <div class="kv"><span class="muted">Имя</span><span>{{ order.customer.display_name }}</span></div>
+      <div class="kv"><span>Имя</span><span>{{ order.customer.display_name }}</span></div>
       {% if order.customer.username %}
-        <div class="kv"><span class="muted">Telegram</span>
-          <a href="https://t.me/{{ order.customer.username }}" rel="noreferrer">@{{ order.customer.username }}</a></div>
+        <div class="kv"><span>Telegram</span><a href="https://t.me/{{ order.customer.username }}" rel="noreferrer">@{{ order.customer.username }}</a></div>
       {% endif %}
       {% if owner %}
-        <div class="kv"><span class="muted">Телефон</span><span>{{ order.recipient_phone or order.customer.phone or '—' }}</span></div>
-        <div class="kv"><span class="muted">Email</span><span>{{ order.recipient_email or order.customer.email or '—' }}</span></div>
-        <div class="kv"><span class="muted">Прошлых заказов</span><span>{{ previous_orders }}</span></div>
+        <div class="kv"><span>Телефон</span><span>{{ order.recipient_phone or order.customer.phone or '—' }}</span></div>
+        <div class="kv"><span>Email</span><span style="overflow-wrap:anywhere">{{ order.recipient_email or order.customer.email or '—' }}</span></div>
+        <div class="kv"><span>Заказов раньше</span><span>{{ previous_orders }}</span></div>
       {% endif %}
       {% if order.customer.bot_blocked_at %}
-        <p class="danger-note">Клиент заблокировал бота — уведомления не доходят.</p>
+        <p class="danger-note" style="margin:12px 0 0">Клиент заблокировал бота — уведомления не доходят.</p>
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2>История заказа</h2>
-      <ul class="history" style="padding-left:0">
-        {% for event in events %}
-          <li>
-            <time>{{ event.created_at | ru_datetime }} · {{ event.actor }}</time>
-            {{ event.event_type.value | order_event }}
-            {% if event.event_type.value == 'status_changed' %}
-              <span class="muted">
-                {{ event.payload.get('from', '') | order_status }} → {{ event.payload.get('to', '') | order_status }}
-              </span>
-            {% elif event.payload.get('problem') %}
-              <span class="muted">{{ event.payload.get('problem') }}</span>
-            {% elif event.payload.get('reason') %}
-              <span class="muted">{{ event.payload.get('reason') }}</span>
-            {% endif %}
-          </li>
-        {% else %}
-          <li class="muted">Событий пока нет.</li>
-        {% endfor %}
-      </ul>
-    </section>
+    {% if owner %}
+    <details class="fold">
+      <summary>Сроки и отмена</summary>
+      <div class="fold-body">
+        {% if not ready_date %}<p class="muted small" style="margin-top:0">Расчётная дата на этом этапе не считается.</p>{% endif %}
+        <form method="post" action="/admin/orders/{{ order.id }}/production-days" class="form-row">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="production_days">Срок изготовления, раб. дней</label>
+          <input id="production_days" name="production_days" type="number" min="1" max="60" value="{{ order.production_days }}">
+          <button class="secondary small" type="submit" style="margin-top:8px">Сохранить срок</button>
+        </form>
+
+        <form method="post" action="/admin/orders/{{ order.id }}/promised-date" class="form-row">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="promised_date">Обещали клиенту</label>
+          <input id="promised_date" name="promised_date" type="date"
+                 value="{{ order.promised_ready_date.isoformat() if order.promised_ready_date else '' }}">
+          <span class="helptext">Сама не пересчитывается.</span>
+          <button class="secondary small" type="submit" style="margin-top:8px">Сохранить дату</button>
+        </form>
+
+        {# Возврат возможен, пока заказ не получен и не отменён: из «Получен» отменить нельзя. #}
+        {% if can_refund and order.status.value not in ('completed', 'cancelled') %}
+          <form method="post" action="/admin/orders/{{ order.id }}/refund" class="form-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label for="refund_reason">Вернуть деньги</label>
+            <input id="refund_reason" name="reason" placeholder="Причина">
+            <label class="inline-check">
+              <input type="checkbox" name="confirm" value="true">
+              Деньги вернула, чек в «Мой налог» аннулирован
+            </label>
+            <span class="helptext">Заказ отменится, клиент получит сообщение.</span>
+            <button class="danger small" type="submit" style="margin-top:8px">Оформить возврат</button>
+          </form>
+        {% elif order.status.value not in ('cancelled', 'completed') %}
+          <form method="post" action="/admin/orders/{{ order.id }}/cancel" class="form-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label for="reason">Отменить заказ</label>
+            <input id="reason" name="reason" placeholder="Причина">
+            <button class="danger small" type="submit" style="margin-top:8px">Отменить</button>
+          </form>
+        {% endif %}
+      </div>
+    </details>
+    {% else %}
+      <section class="card">
+        <div class="kv"><span>Собрать к</span><span>{{ ready_date | ru_date if ready_date else '—' }}</span></div>
+      </section>
+    {% endif %}
+
+    <details class="fold">
+      <summary>История <span class="muted">{{ events | length }}</span></summary>
+      <div class="fold-body">
+        <ul class="history">
+          {% for event in events %}
+            <li>
+              <time>{{ event.created_at | ru_datetime }} · {{ event.actor }}</time>
+              {{ event.event_type.value | order_event }}
+              {% if event.event_type.value == 'status_changed' %}
+                <span class="muted">{{ event.payload.get('from', '') | order_status }} → {{ event.payload.get('to', '') | order_status }}</span>
+              {% elif event.payload.get('problem') %}
+                <span class="muted">{{ event.payload.get('problem') }}</span>
+              {% elif event.payload.get('reason') %}
+                <span class="muted">{{ event.payload.get('reason') }}</span>
+              {% endif %}
+            </li>
+          {% else %}
+            <li class="muted">Событий пока нет.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </details>
   </div>
 </div>
 {% endblock %}

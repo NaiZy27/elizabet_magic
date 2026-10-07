@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(admin_router)
     app.include_router(pay.router)
+    app.include_router(pay.webhooks)
 
     _register_error_handlers(app)
 
@@ -124,6 +126,26 @@ def _register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(NotAuthenticated)
     async def _not_authenticated(request: Request, error: NotAuthenticated) -> RedirectResponse:
         return login_redirect(error.next_url)
+
+    @app.exception_handler(IntegrityError)
+    async def _integrity_error(request: Request, error: IntegrityError) -> Response:
+        """Повтор уникального значения: понятное сообщение вместо «Internal Server Error»."""
+        logger.info("Нарушено ограничение базы: %s", error.orig)
+        unique = "unique" in str(error.orig).lower() or "duplicate" in str(error.orig).lower()
+        message = (
+            "Такое значение уже есть. Артикул бокса и варианта, код услуги и название цвета "
+            "должны быть уникальными — поменяйте и сохраните ещё раз."
+            if unique
+            else "Данные не подошли под правила. Проверьте поля и сохраните ещё раз."
+        )
+        if not _wants_html(request):
+            return Response(message, status_code=422, media_type="text/plain; charset=utf-8")
+        return render(
+            request,
+            "errors/error.html",
+            {"code": 422, "title": "Не сохранилось", "message": message},
+            status_code=422,
+        )
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, error: StarletteHTTPException) -> Response:

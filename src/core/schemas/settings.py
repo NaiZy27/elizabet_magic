@@ -12,7 +12,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from core.workdays import DEFAULT_WORKING_WEEKDAYS, WorkingCalendar
+from core.workdays import DEFAULT_WORKING_WEEKDAYS, DailyCapacity, WorkingCalendar
 
 
 class SettingKey(StrEnum):
@@ -38,6 +38,10 @@ class WorkingCalendarSettings(SettingsModel):
     weekdays: list[int] = Field(default_factory=lambda: sorted(DEFAULT_WORKING_WEEKDAYS))
     #: Отпуск и праздники.
     holidays: list[dt.date] = Field(default_factory=list)
+    #: Сколько боксов собираем за день: с видео сборки — меньше, его ещё нужно снять.
+    #: Бокс с видео занимает 1/video_boxes_per_day дня, без видео — 1/plain_boxes_per_day.
+    video_boxes_per_day: int = Field(default=2, ge=1, le=50)
+    plain_boxes_per_day: int = Field(default=4, ge=1, le=50)
 
     @field_validator("weekdays")
     @classmethod
@@ -52,6 +56,10 @@ class WorkingCalendarSettings(SettingsModel):
         return WorkingCalendar(
             weekdays=frozenset(self.weekdays),
             holidays=frozenset(self.holidays),
+            capacity=DailyCapacity(
+                video_per_day=self.video_boxes_per_day,
+                plain_per_day=self.plain_boxes_per_day,
+            ),
         )
 
 
@@ -130,6 +138,9 @@ class BotTextsSettings(SettingsModel):
         "имя, телефон и адрес пункта выдачи нужны для доставки."
     )
     consent_url: str | None = None
+    #: Подпись под вопросом про видео сборки: что бывает с боксом без платного видео.
+    #: Пусто — подпись не показываем.
+    no_video_note: str = "Без видео сборка может появиться в нашем канале — на наше усмотрение."
 
 
 #: Какой схемой разбирать значение каждого ключа.

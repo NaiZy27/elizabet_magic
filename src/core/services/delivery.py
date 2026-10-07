@@ -11,7 +11,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.enums import DeliveryProviderCode, ProviderEnvironment
@@ -22,8 +22,10 @@ from core.text import search_words
 #: Сколько пунктов показываем клиенту за раз.
 PICKUP_POINTS_PAGE_SIZE = 5
 
-#: В каком радиусе ищем ближайшие пункты по геопозиции.
-NEAREST_SEARCH_RADIUS_KM = 50.0
+#: Радиусы поиска ближайших пунктов по геопозиции: начинаем с маленького и
+#: расширяем, пока не наберётся нужное число пунктов. В городе хватает первого шага,
+#: в глуши поиск дойдёт до сотен километров, но клиент всё равно увидит варианты.
+NEAREST_SEARCH_RADII_KM = (2.0, 5.0, 15.0, 50.0, 150.0, 500.0, 2000.0)
 
 _EARTH_RADIUS_KM = 6371.0
 
@@ -99,6 +101,16 @@ async def enabled_providers(session: AsyncSession) -> list[DeliveryProvider]:
         .order_by(DeliveryProvider.id),
     )
     return list(result)
+
+
+async def fixed_price_kopecks(session: AsyncSession) -> int | None:
+    """Единая цена доставки, если у всех включённых служб она одинаковая.
+
+    Пока службы не подключены по API, цена — резервная из раздела «Доставка» в
+    панели, и у СДЭК и Яндекса она одна (500 ₽). Её и называем клиенту заранее.
+    """
+    prices = {provider.fallback_price_kopecks for provider in await enabled_providers(session)}
+    return prices.pop() if len(prices) == 1 else None
 
 
 async def get_provider(
@@ -183,34 +195,89 @@ async def search_nearest(
     longitude: float,
     environment: ProviderEnvironment,
     limit: int = PICKUP_POINTS_PAGE_SIZE,
-    radius_km: float = NEAREST_SEARCH_RADIUS_KM,
+    radii_km: Sequence[float] = NEAREST_SEARCH_RADII_KM,
     providers: Sequence[DeliveryProviderCode] | None = None,
 ) -> list[tuple[PickupPoint, float]]:
-    """Ближайшие пункты с расстоянием до каждого.
+    """`limit` ближайших пунктов с расстоянием до каждого, от ближнего к дальнему.
 
-    Сначала отсекаем прямоугольником по координатам (по нему есть индекс),
-    точное расстояние считаем уже по отобранным точкам.
+    Для каждого радиуса из `radii_km` по очереди:
+    1. отсекаем кандидатов прямоугольником вокруг клиента — по широте есть индекс,
+       так что база не перебирает весь справочник;
+    2. база считает расстояние по сфере (формула гаверсинусов), оставляет пункты
+       внутри круга — углы прямоугольника дальше радиуса — и отдаёт `limit` ближайших;
+    3. для них расстояние пересчитывается в Python, им и подписываем пункты.
+    Если в круге набралось `limit` пунктов, это и есть ответ: всё, что за кругом,
+    дальше любого из них. Если нет — расширяем радиус. После последнего радиуса
+    берём ближайшие из всего справочника, чтобы клиент не остался без вариантов.
     """
-    lat_delta = radius_km / 111.0
-    # Чем ближе к полюсу, тем короче градус долготы.
-    lon_delta = radius_km / max(1.0, 111.0 * math.cos(math.radians(latitude)))
+    for radius_km in radii_km:
+        found = await _nearest_within(
+            session,
+            latitude,
+            longitude,
+            radius_km,
+            limit,
+            environment,
+            providers,
+        )
+        if len(found) >= limit:
+            return found[:limit]
+    found = await _nearest_within(session, latitude, longitude, None, limit, environment, providers)
+    return found[:limit]
 
+
+async def _nearest_within(
+    session: AsyncSession,
+    latitude: float,
+    longitude: float,
+    radius_km: float | None,
+    limit: int,
+    environment: ProviderEnvironment,
+    providers: Sequence[DeliveryProviderCode] | None,
+) -> list[tuple[PickupPoint, float]]:
+    """До `limit` ближайших пунктов в круге `radius_km` (None — без ограничения)."""
+    distance = _sql_distance_km(latitude, longitude)
     statement = select(PickupPoint).where(
         PickupPoint.is_active.is_(True),
         PickupPoint.environment == environment,
-        PickupPoint.latitude.between(latitude - lat_delta, latitude + lat_delta),
-        PickupPoint.longitude.between(longitude - lon_delta, longitude + lon_delta),
     )
+    if radius_km is not None:
+        lat_delta = radius_km / 111.0
+        statement = statement.where(
+            PickupPoint.latitude.between(latitude - lat_delta, latitude + lat_delta),
+        )
+        # Градус долготы короче к полюсу. Если окно по долготе перешагивает 180-й
+        # меридиан (Чукотка) или вырождается у полюса, по долготе не отсекаем вовсе.
+        cos_lat = math.cos(math.radians(latitude))
+        lon_delta = radius_km / (111.0 * cos_lat) if cos_lat > 0.01 else 360.0
+        if longitude - lon_delta > -180 and longitude + lon_delta < 180:
+            statement = statement.where(
+                PickupPoint.longitude.between(longitude - lon_delta, longitude + lon_delta),
+            )
+        statement = statement.where(distance <= radius_km)
     if providers:
         statement = statement.where(PickupPoint.provider.in_(tuple(providers)))
+    statement = statement.order_by(distance).limit(limit)
 
-    result = await session.scalars(statement)
     with_distance = [
         (point, distance_km(latitude, longitude, point.latitude, point.longitude))
-        for point in result
+        for point in await session.scalars(statement)
     ]
+    if radius_km is not None:
+        with_distance = [pair for pair in with_distance if pair[1] <= radius_km]
     with_distance.sort(key=lambda pair: pair[1])
-    return [pair for pair in with_distance if pair[1] <= radius_km][:limit]
+    return with_distance
+
+
+def _sql_distance_km(latitude: float, longitude: float):
+    """То же, что distance_km, но выражением SQL — чтобы сортировать на стороне базы."""
+    delta_lat = func.radians(PickupPoint.latitude - latitude)
+    delta_lon = func.radians(PickupPoint.longitude - longitude)
+    a = func.power(func.sin(delta_lat * 0.5), 2) + math.cos(math.radians(latitude)) * func.cos(
+        func.radians(PickupPoint.latitude),
+    ) * func.power(func.sin(delta_lon * 0.5), 2)
+    # least(): из-за округления a может чуть превысить 1, и asin упадёт.
+    return 2 * _EARTH_RADIUS_KM * func.asin(func.least(1.0, func.sqrt(a)))
 
 
 async def get_pickup_point(session: AsyncSession, point_id: int) -> PickupPoint:

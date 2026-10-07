@@ -1,52 +1,48 @@
 {% extends "admin/base.html" %}
+{% from "admin/_ui.html" import tabs %}
 {% block title %}Платежи{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">Оплаты</div>
-    <h1>Платежи</h1>
-    <p>Каждая строка — одна попытка оплаты. У заказа может быть несколько попыток,
-      но успешная — только одна.</p>
+<div class="page-head">
+  <div class="head-left">
+    <h1>Статистика</h1>
+    {{ tabs([('/admin/stats', 'Итоги', False), ('/admin/payments', 'Платежи', True)]) }}
   </div>
 </div>
 
-<form class="filters" method="get">
-  <select name="status">
-    <option value="">Любое состояние</option>
-    {% for value in ['pending', 'paid', 'failed', 'cancelled', 'refunded'] %}
-      <option value="{{ value }}" {{ 'selected' if selected_status == value }}>{{ value | payment_status }}</option>
+<form class="toolbar" method="get">
+  <nav class="tabs">
+    <button class="{{ 'on' if not selected_status }}" name="status" value="" type="submit">Все</button>
+    {% for value in ['paid', 'pending', 'failed', 'refunded'] %}
+      <button class="{{ 'on' if selected_status == value }}" name="status" value="{{ value }}" type="submit">{{ value | payment_status }}</button>
     {% endfor %}
-  </select>
-  <button type="submit">Показать</button>
+  </nav>
 </form>
 
-<div class="card">
+<div class="card table-card">
   {% if payments %}
-    <table>
+    <table class="rtable">
       <thead>
-        <tr><th>Счёт</th><th>Заказ</th><th>Клиент</th><th>Способ</th><th>Сумма</th><th>Состояние</th><th>Создан</th><th>Оплачен</th></tr>
+        <tr><th>Заказ</th><th>Клиент</th><th>Способ</th><th>Состояние</th><th>Создан</th><th class="num">Сумма</th></tr>
       </thead>
       <tbody>
         {% for payment in payments %}
           <tr>
-            <td>№{{ payment.id }}</td>
-            <td><a href="/admin/orders/{{ payment.order_id }}">{{ payment.order.admin_label }}</a></td>
-            <td>{{ payment.order.recipient_name or payment.order.customer.display_name }}</td>
-            <td>
-              {{ payment.provider.value | payment_provider }}
-              {% if payment.environment.value == 'test' %}<br><span class="badge">тестовый контур</span>{% endif %}
+            <td class="primary">
+              <a href="/admin/orders/{{ payment.order_id }}">{{ payment.order.admin_label }}</a>
+              <div class="muted small">счёт №{{ payment.id }}</div>
             </td>
-            <td>{{ payment.amount_kopecks | rubles }}</td>
-            <td><span class="badge {{ payment.status.value }}">{{ payment.status.value | payment_status }}</span></td>
-            <td>{{ payment.created_at | ru_datetime }}</td>
-            <td>{{ payment.paid_at | ru_datetime }}</td>
+            <td data-label="Клиент">{{ payment.order.recipient_name or payment.order.customer.display_name }}</td>
+            <td data-label="Способ">{{ payment.provider.value | payment_provider }}{% if payment.environment.value == 'test' %} <span class="muted small">· тест</span>{% endif %}</td>
+            <td data-label="Состояние"><span class="status {{ payment.status.value }}">{{ payment.status.value | payment_status }}</span></td>
+            <td data-label="Создан">{{ payment.created_at | ru_datetime_short }}</td>
+            <td class="num" data-label="Сумма"><b>{{ payment.amount_kopecks | rubles }}</b></td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   {% else %}
-    <div class="empty">Платежей пока нет.</div>
+    <div class="empty"><b>Платежей нет</b>Они появятся, когда клиенты начнут оплачивать заказы.</div>
   {% endif %}
 </div>
 

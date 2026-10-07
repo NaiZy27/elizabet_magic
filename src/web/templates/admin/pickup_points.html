@@ -2,14 +2,8 @@
 {% block title %}Пункты выдачи{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">Справочник</div>
-    <h1>Пункты выдачи</h1>
-    <p>Обновляется автоматически. Пропавшие из ответа службы точки выключаются, но не удаляются —
-      на них ссылаются оформленные заказы.</p>
-  </div>
-</div>
+{% from "admin/_ui.html" import settings_head %}
+{{ settings_head('delivery') }}
 
 <form class="filters" method="get">
   <input name="q" value="{{ q }}" placeholder="Город, адрес или код">
