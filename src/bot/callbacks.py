@@ -27,21 +27,14 @@ class VideoCB(CallbackData, prefix="vd"):
     enabled: bool
 
 
-class ColorCB(CallbackData, prefix="c"):
-    """Отметить цвет. kind: f — любимые, a — нежелательные."""
-
-    kind: str
-    color_id: int
-
-
-class ColorsDoneCB(CallbackData, prefix="cd"):
-    """Закончить выбор цветов."""
-
-    kind: str
-
-
 class PickupCB(CallbackData, prefix="pv"):
     """Выбранный пункт выдачи."""
+
+    point_id: int
+
+
+class NearestPointCB(CallbackData, prefix="np"):
+    """Показать на карте пункт из списка ближайших (вне оформления заказа)."""
 
     point_id: int
 
@@ -100,3 +93,24 @@ class OwnerPhotoCB(CallbackData, prefix="ph"):
 
     action: str
     product_id: int
+
+
+class MenuCB(CallbackData, prefix="m"):
+    """Раздел главного меню: home, order, orders, prices, delivery, faq, contacts."""
+
+    section: str
+
+
+class ReviewCB(CallbackData, prefix="rv"):
+    """Клиент: new — оставить отзыв к заказу, cancel — передумал."""
+
+    action: str
+    order_id: int = 0
+
+
+class ReviewAdminCB(CallbackData, prefix="ra"):
+    """Владелица: page — листать, post — в канал, photo — показать фото, hide — скрыть."""
+
+    action: str
+    index: int = 0
+    review_id: int = 0

@@ -43,6 +43,7 @@ PLACEHOLDERS: dict[str, str] = {
     "has_video": "Заказано ли видео сборки (да/нет)",
     "receipt_url": "Ссылка на чек в «Мой налог»",
     "ready_date": "Дата готовности, обещанная клиенту",
+    "queue_position": "Место заказа в очереди сборки",
     "delivery_service": "Служба доставки",
     "pickup_name": "Название пункта выдачи",
     "pickup_address": "Адрес пункта выдачи",
@@ -64,8 +65,9 @@ DEFAULT_TEMPLATES: dict[MessageTemplateKey, str] = {
         "Номер заказа пришлём сразу после оплаты."
     ),
     MessageTemplateKey.ORDER_PAID: (
-        "Оплата получена! Ваш заказ №{{ order_number }} принят 💗\n\n"
-        "Планируем собрать к {{ ready_date }} и сразу передадим в доставку.\n"
+        "Оплата получена 💗 Заказ №{{ order_number }}\n\n"
+        "Место в очереди: {{ queue_position }}\n"
+        "Соберём к {{ ready_date }} и сразу отправим.\n"
         "Чек придёт на {{ email }}."
     ),
     MessageTemplateKey.RECEIPT_ISSUED: (
@@ -125,6 +127,7 @@ def sample_context() -> dict[str, Any]:
         "has_video": "да",
         "receipt_url": "https://lknpd.nalog.ru/api/v1/receipt/000000000000/200abc/print",
         "ready_date": "22.09.2026",
+        "queue_position": 3,
         "delivery_service": "СДЭК",
         "pickup_name": "Пункт выдачи на Ленина",
         "pickup_address": "г. Казань, ул. Ленина, 15",
@@ -175,6 +178,7 @@ def build_context(order: Order, **extra: Any) -> dict[str, Any]:
         "ready_date": (
             format_date(order.promised_ready_date) if order.promised_ready_date else "уточняется"
         ),
+        "queue_position": order.queue_position or "—",
         "delivery_service": snapshot.get("provider_name", ""),
         "pickup_name": snapshot.get("name", ""),
         "pickup_address": snapshot.get("address", ""),

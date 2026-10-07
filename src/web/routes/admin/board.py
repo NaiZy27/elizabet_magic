@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
 from core.clock import format_date_short, today_moscow
 from core.enums import BOARD_STATUSES, QUEUE_STATUSES, OrderStatus
 from core.errors import ConflictError, DomainError
+from core.models import Review
+from core.services import analytics
 from core.services import board as board_service
+from core.services import catalog as catalog_service
 from core.services import orders as orders_service
 from core.services import settings as settings_service
 from web.security import CurrentAdmin, CurrentAdminApi, DbSession, csrf_token, verify_csrf
@@ -31,17 +36,96 @@ async def show_board(request: Request, session: DbSession, admin: CurrentAdmin):
         calendar=calendar,
         keep_completed_hours=rules.keep_completed_on_board_hours,
     )
+    # Загрузка мастерской на две недели вперёд — полоска над доской.
+    plan = await analytics.production_plan(session, calendar=calendar, days=14)
     return render(
         request,
         "admin/board.html",
         {
             "columns": columns,
             "metrics": metrics,
+            "plan": plan,
             "admin": admin,
             "csrf_token": csrf_token(request),
             "queue_statuses": [item.value for item in QUEUE_STATUSES],
             "keep_completed_hours": rules.keep_completed_on_board_hours,
             "today": today_moscow(),
+        },
+    )
+
+
+@router.get("/home")
+async def show_home(request: Request, session: DbSession, admin: CurrentAdmin):
+    """Главная для телефона: что сегодня, загрузка и входы в заказы, товары и клиентов."""
+    calendar = await settings_service.get_working_calendar(session)
+    rules = await settings_service.get_order_rules(session)
+    today = today_moscow()
+    columns, metrics = await board_service.load_board(
+        session,
+        calendar=calendar,
+        keep_completed_hours=rules.keep_completed_on_board_hours,
+    )
+    today_cards = [
+        card for column in columns for card in column.cards if card.ready_date == today
+    ]
+    plan = await analytics.production_plan(session, calendar=calendar, days=14)
+
+    context = {
+        "metrics": metrics,
+        "plan": plan,
+        "today": today,
+        "today_cards": today_cards,
+        "admin": admin,
+        "csrf_token": csrf_token(request),
+    }
+    if admin.is_owner:
+        products = await catalog_service.list_products_for_admin(session)
+        context.update(
+            products_total=len(products),
+            products_live=sum(
+                1 for item in products if item.is_active and catalog_service.active_variants(item.variants)
+            ),
+            customers=await analytics.customer_summary(session),
+            new_reviews=await session.scalar(
+                select(func.count(Review.id)).where(
+                    Review.hidden_at.is_(None),
+                    Review.posted_at.is_(None),
+                ),
+            ),
+        )
+    return render(request, "admin/home.html", context)
+
+
+@router.get("/board/calendar")
+async def show_calendar(
+    request: Request,
+    session: DbSession,
+    admin: CurrentAdmin,
+    weeks: int = 5,
+):
+    """Календарь сборки: что и в какой день будет готово, сколько места осталось."""
+    calendar = await settings_service.get_working_calendar(session)
+    today = today_moscow()
+    monday = today - dt.timedelta(days=today.weekday())
+    weeks = max(2, min(weeks, 12))
+    plan = await analytics.production_plan(
+        session,
+        calendar=calendar,
+        days=weeks * 7,
+        start=monday,
+        today=today,
+    )
+    capacity = calendar.capacity
+    return render(
+        request,
+        "admin/calendar.html",
+        {
+            "plan": plan,
+            "weeks": [plan.days[i : i + 7] for i in range(0, len(plan.days), 7)],
+            "today": today,
+            "capacity": capacity,
+            "admin": admin,
+            "csrf_token": csrf_token(request),
         },
     )
 

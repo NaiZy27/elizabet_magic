@@ -1,0 +1,81 @@
+{% extends "admin/base.html" %}
+{% from "admin/_ui.html" import tabs %}
+{% block title %}Календарь сборки{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-left">
+    <h1>Заказы</h1>
+    {{ tabs([('/admin/board', 'Доска', False), ('/admin/board/calendar', 'Календарь', True), ('/admin/orders', 'Список', False)]) }}
+  </div>
+</div>
+
+<section class="tiles">
+  <div class="tile hero">
+    <span class="tile-label">Новый заказ соберём</span>
+    <span class="tile-value" style="font-size:36px">{{ plan.next_free_plain | ru_weekday }}, {{ plan.next_free_plain | ru_day_month }}</span>
+    <span class="tile-note">это дата, которую бот назовёт клиенту сейчас</span>
+  </div>
+  <div class="tile blush">
+    <span class="tile-label">С видео сборки</span>
+    <span class="tile-value" style="font-size:32px">{{ plan.next_free_video | ru_weekday }}, {{ plan.next_free_video | ru_day_month }}</span>
+  </div>
+  <div class="tile">
+    <span class="tile-label">В очереди</span>
+    <span class="tile-value">{{ plan.queue_boxes }} <small>{{ plan.queue_boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}</small></span>
+    <span class="tile-note">{{ plan.queue_orders }} {{ plan.queue_orders | pluralize_ru('заказ', 'заказа', 'заказов') }} · с видео {{ plan.queue_video_boxes }}</span>
+  </div>
+  {% if capacity %}
+  <div class="tile">
+    <span class="tile-label">Лимит в день</span>
+    <span class="tile-value">{{ capacity.plain_per_day }} <small>или {{ capacity.video_per_day }} с видео</small></span>
+    {% if admin.is_owner %}<a class="tile-note" href="/admin/settings">изменить в настройках →</a>{% endif %}
+  </div>
+  {% endif %}
+</section>
+
+<div class="load-legend" style="margin:0 0 16px">
+  <span><i style="background:var(--brand)"></i>занято</span>
+  <span><i style="background:var(--bad)"></i>день заполнен</span>
+  <span><i style="background:repeating-linear-gradient(135deg,#ffffff22 0 3px,transparent 3px 6px)"></i>выходной</span>
+</div>
+
+<div class="cal">
+  {% for name in ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'] %}
+    <div class="cal-head">{{ name }}</div>
+  {% endfor %}
+  {% for week in weeks %}
+    {% for day in week %}
+      {% set past = day.day < today %}
+      <div class="cal-day {{ 'past' if past }} {{ 'off' if not day.is_working and not past }} {{ 'today' if day.day == today }} {{ 'full' if day.is_full }}" id="d{{ day.day.isoformat() }}">
+        <div class="num">
+          <b>{{ day.day.day }}</b>
+          <span>{{ day.day | ru_weekday }}{% if day.day.day == 1 or loop.first %}, {{ day.day | ru_day_month }}{% endif %}{% if day.day == today %} · сегодня{% endif %}</span>
+        </div>
+        {% if not past %}
+          {% if day.is_working %}
+            {% if capacity %}<div class="meter"><span style="width: {{ day.percent }}%"></span></div>{% endif %}
+            <div class="cal-boxes">
+              {% if day.boxes %}{{ day.boxes }} {{ day.boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}{% if day.video_boxes %} · видео {{ day.video_boxes }}{% endif %}{% if capacity %} · {{ day.percent }}%{% endif %}
+              {% else %}свободно{% endif %}
+            </div>
+          {% else %}
+            <div class="cal-boxes">выходной</div>
+          {% endif %}
+          {% if day.ready %}
+            <div class="cal-orders">
+              {% for item in day.ready %}
+                <a href="/admin/orders/{{ item.id }}" title="{{ item.name }}">
+                  <span>{{ item.name or item.label }}</span>
+                  <em>{{ item.video_boxes + item.plain_boxes }}{% if item.video_boxes %} · видео{% endif %}</em>
+                </a>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% endfor %}
+</div>
+<p class="muted small" style="margin-top:16px">В день показаны заказы, которые к нему будут готовы. Порядок меняется перетаскиванием на доске — даты пересчитаются сами.</p>
+{% endblock %}

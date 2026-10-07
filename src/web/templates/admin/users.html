@@ -1,74 +1,74 @@
 {% extends "admin/base.html" %}
-{% block title %}Пользователи{% endblock %}
+{% from "admin/_ui.html" import settings_head %}
+{% block title %}Доступ{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">Доступ к панели</div>
-    <h1>Пользователи</h1>
-    <p>Сборщик видит доску и состав заказов с пожеланиями, меняет этапы и пишет заметки.
-      Суммы, клиенты, чеки, каталог и настройки ему недоступны.</p>
-  </div>
-</div>
+{{ settings_head('users') }}
 
 <section class="card">
-  <h2>Кто входит в панель</h2>
-  <table>
-    <thead><tr><th>Логин</th><th>Роль</th><th>Вход</th><th>Последний вход</th><th>Новый пароль</th><th></th></tr></thead>
-    <tbody>
-      {% for user in users %}
-        {% set form_id = 'user-' ~ user.id %}
-        <tr>
-          <td><strong>{{ user.username }}</strong>{% if user.id == admin.id %} <span class="muted">(вы)</span>{% endif %}</td>
-          <td>
-            <select name="role" form="{{ form_id }}">
+  <div class="card-head">
+    <h2>Кто входит в панель</h2>
+    <span class="muted">{{ users | length }}</span>
+  </div>
+  <p class="muted small" style="margin-top:0">Сборщик видит только доску и состав заказов — без сумм, клиентов и настроек.</p>
+  <div class="list-rows">
+    {% for user in users %}
+      <details class="list-row">
+        <summary>
+          <span><b>{{ user.username }}</b>{% if user.id == admin.id %} <span class="muted">· вы</span>{% endif %}<br>
+            <span class="muted small">{{ user.role.value | admin_role }} · вход {{ user.last_login_at | ru_datetime }}</span></span>
+          <span class="status {{ 'on' if user.is_active else 'off' }}"></span>
+        </summary>
+        <form class="row-body" method="post" action="/admin/users/{{ user.id }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Роль</label>
+              <select name="role">
+                {% for role in roles %}
+                  <option value="{{ role.value }}" {{ 'selected' if user.role == role }}>{{ role.value | admin_role }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Новый пароль</label>
+              <input name="password" type="password" autocomplete="new-password" placeholder="не менять">
+            </div>
+          </div>
+          <div class="form-actions">
+            <label class="switch"><input type="checkbox" name="is_active" value="true" {{ 'checked' if user.is_active }}> Вход разрешён</label>
+            <button class="secondary" type="submit" style="margin-left:auto">Сохранить</button>
+          </div>
+        </form>
+      </details>
+    {% endfor %}
+
+    <details class="list-row">
+      <summary><b style="color:var(--brand)">+ Добавить человека</b></summary>
+      <form class="row-body" method="post" action="/admin/users">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <div class="form-row">
+            <label for="username">Логин</label>
+            <input id="username" name="username" autocomplete="off" required>
+          </div>
+          <div class="form-row">
+            <label for="password">Пароль</label>
+            <input id="password" name="password" type="password" autocomplete="new-password" minlength="{{ min_password_length }}" required>
+            <span class="helptext">Не короче {{ min_password_length }} символов.</span>
+          </div>
+          <div class="form-row">
+            <label for="role">Роль</label>
+            <select id="role" name="role">
               {% for role in roles %}
-                <option value="{{ role.value }}" {{ 'selected' if user.role == role }}>{{ role.value | admin_role }}</option>
+                <option value="{{ role.value }}" {{ 'selected' if role.value == 'assembler' }}>{{ role.value | admin_role }}</option>
               {% endfor %}
             </select>
-          </td>
-          <td>
-            <label class="inline-check">
-              <input type="checkbox" name="is_active" value="true" form="{{ form_id }}" {{ 'checked' if user.is_active }}> разрешён
-            </label>
-          </td>
-          <td>{{ user.last_login_at | ru_datetime }}</td>
-          <td><input name="password" type="password" autocomplete="new-password" placeholder="не менять" form="{{ form_id }}"></td>
-          <td>
-            <form id="{{ form_id }}" method="post" action="/admin/users/{{ user.id }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="secondary" type="submit">Сохранить</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="card">
-  <h2>Добавить пользователя</h2>
-  <form method="post" action="/admin/users" class="form-grid">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="form-row">
-      <label for="username">Логин</label>
-      <input id="username" name="username" autocomplete="off" required>
-    </div>
-    <div class="form-row">
-      <label for="password">Пароль</label>
-      <input id="password" name="password" type="password" autocomplete="new-password"
-             minlength="{{ min_password_length }}" required>
-      <span class="helptext">Не короче {{ min_password_length }} символов. Хранится только в зашифрованном виде.</span>
-    </div>
-    <div class="form-row">
-      <label for="role">Роль</label>
-      <select id="role" name="role">
-        {% for role in roles %}
-          <option value="{{ role.value }}" {{ 'selected' if role.value == 'assembler' }}>{{ role.value | admin_role }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-row"><button type="submit" style="margin-top:26px">Добавить</button></div>
-  </form>
+          </div>
+        </div>
+        <button type="submit">Добавить</button>
+      </form>
+    </details>
+  </div>
 </section>
 {% endblock %}

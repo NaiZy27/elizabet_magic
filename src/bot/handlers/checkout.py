@@ -1,6 +1,6 @@
 """Оформление заказа в одном сообщении.
 
-Порядок: боксы по одному (у каждого свои ложечки, видео, цвета и пожелания) →
+Порядок: боксы по одному (у каждого свои ложечки, видео и пожелания текстом) →
 корзина → пункт выдачи → получатель → итог → оплата. Постоянному клиенту пункт
 выдачи и получатель подставляются из прошлого заказа — остаётся подтвердить.
 
@@ -21,9 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot import ui
 from bot.callbacks import (
     CartCB,
-    ColorCB,
-    ColorsDoneCB,
     ConfirmCB,
+    MenuCB,
     PickupCB,
     PickupPageCB,
     PrefillCB,
@@ -33,10 +32,12 @@ from bot.callbacks import (
     StepCB,
     VideoCB,
 )
+from bot.emoji import provider_icon
 from bot.keyboards import checkout as kb
 from bot.keyboards.common import (
     BTN_CANCEL,
     BTN_ORDER,
+    BTN_SEND_PHONE,
     MENU_BUTTONS,
     main_menu,
     request_location,
@@ -64,12 +65,14 @@ from bot.states import (
     WITH_VIDEO,
     Checkout,
 )
+from core.clock import format_date
 from core.config import get_settings
 from core.enums import MessageTemplateKey
 from core.errors import DomainError
 from core.models import Customer, Order, OrderItem
 from core.money import format_rubles
 from core.services import (
+    board,
     catalog,
     delivery,
     intake,
@@ -88,61 +91,73 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="checkout")
 
-KIND_FAVORITE = "f"
-KIND_AVOID = "a"
-
-STALE_TEXT = "Это оформление уже неактуально. Нажмите «Заказать бокс», чтобы начать заново."
+STALE_TEXT = "Это оформление устарело — начните заново."
 
 
 # --- вход в сценарий ---
 
 
-@router.message(F.text == BTN_ORDER)
-async def start_checkout(
-    message: Message,
+@router.callback_query(MenuCB.filter(F.section == "order"))
+async def start_from_menu(
+    callback: CallbackQuery,
     state: FSMContext,
     session: AsyncSession,
     customer: Customer,
 ) -> None:
-    """Начать оформление или предложить продолжить брошенный черновик."""
+    await callback.answer()
+    await start_checkout(callback, state, session, customer)
+
+
+@router.message(F.text == BTN_ORDER)
+async def start_checkout(
+    event: Message | CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    """Начать оформление или предложить продолжить брошенный черновик.
+
+    Из меню оформление продолжается в том же сообщении, где было меню.
+    """
     opened = await intake.check(session)
     if not opened.is_open:
-        await _reset(message, state)
-        await message.answer(opened.message, reply_markup=main_menu())
+        await _reset(event, state)
+        await ui.reply(event, text=opened.message, keyboard=main_menu())
         return
 
     texts = await settings.get_bot_texts(session)
     if customer.consent_accepted_at is None:
-        await _reset(message, state)
+        await _reset(event, state)
         policy = (
             f'\n\n<a href="{texts.consent_url}">Политика обработки данных</a>'
             if texts.consent_url
             else ""
         )
-        await message.answer(
-            f"{texts.consent_text}{policy}",
-            reply_markup=single_button("Продолжить", ConfirmCB(action="consent", value=1).pack()),
-            disable_web_page_preview=True,
+        await ui.reply(
+            event,
+            text=f"{texts.consent_text}{policy}",
+            keyboard=single_button("Продолжить", ConfirmCB(action="consent", value=1).pack()),
         )
         return
 
     draft = await orders.get_draft(session, customer.id)
     if draft is not None and draft.items:
-        await _reset(message, state)
+        await _reset(event, state)
+        await ui.adopt(event, state)
         await state.update_data({ORDER_ID: draft.id})
         await ui.show(
-            message,
+            event,
             state,
             text=ui.compose(
                 None,
-                "У вас есть незаконченный заказ",
-                f"{notifications.describe_items(draft)}\n\nПродолжим с того же места?",
+                "Есть незаконченный заказ",
+                notifications.describe_items(draft),
             ),
             keyboard=kb.resume_draft(),
         )
         return
 
-    await _begin_new_order(message, state, session, customer)
+    await _begin_new_order(event, state, session, customer)
 
 
 @router.callback_query(ConfirmCB.filter(F.action == "consent"))
@@ -154,7 +169,6 @@ async def accept_consent(
 ) -> None:
     await orders.accept_consent(session, customer)
     await callback.answer()
-    await ui.mark_choice(callback.message, "✅ Согласие получено")
     await _begin_new_order(callback, state, session, customer)
 
 
@@ -169,14 +183,13 @@ async def continue_or_restart(
     """«Продолжим с того же места?» — да или начать заново."""
     if not callback_data.use:
         await callback.answer()
-        await _begin_new_order(callback, state, session, customer, footer="↺ Начинаем заново")
+        await _begin_new_order(callback, state, session, customer)
         return
 
     order = await _draft(callback, state, session, customer)
     if order is None:
         return
     await callback.answer()
-    await ui.retire(callback, state, footer="✅ Продолжаем оформление")
     # Цены могли поменяться, пока черновик лежал.
     await orders.recalculate(session, order)
     if order.items:
@@ -195,9 +208,8 @@ async def _begin_new_order(
 ) -> None:
     order = await orders.create_draft(session, customer)
     await _reset(event, state, footer=footer)
-    # Главное меню на время оформления прячем: «Заказать бокс» посреди заказа только путает.
-    # Вернётся, когда заказ будет оформлен или отменён.
-    await ui.hide_reply_keyboard(event)
+    # Нажали кнопку в сообщении — дальше оформление идёт прямо в нём.
+    await ui.adopt(event, state)
     await state.update_data({ORDER_ID: order.id})
     await _start_box(event, state, session, order)
 
@@ -215,9 +227,7 @@ async def _start_box(
     """Начать собирать новый бокс или открыть на правку уже добавленный."""
     await state.update_data(dict.fromkeys(BOX_KEYS))
     if item is None:
-        await state.update_data(
-            {BOX_NUMBER: len(order.items) + 1, FAVORITE_COLORS: [], AVOID_COLORS: []},
-        )
+        await state.update_data({BOX_NUMBER: len(order.items) + 1})
     else:
         await state.update_data(
             {
@@ -246,7 +256,7 @@ async def show_product_step(
         await ui.show(
             event,
             state,
-            text="Каталог сейчас обновляется. Загляните чуть позже или напишите нам.",
+            text="Каталог обновляется — загляните чуть позже.",
         )
         return
 
@@ -263,7 +273,6 @@ async def show_product_step(
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 1),
             "Выберите бокс",
-            "Дальше подберём количество ложечек, цвета и пожелания именно к нему.",
         ),
         keyboard=kb.products(rows, back_to_cart=has_items),
     )
@@ -310,7 +319,7 @@ async def show_spoons_step(
     body = product.description or ""
     if product.allows_extra_spoons and product.extra_spoon_price_kopecks is not None:
         extra = format_rubles(product.extra_spoon_price_kopecks)
-        body = f"{body}\n\nКаждая ложечка сверх набора — {extra}.".strip()
+        body = f"{body}\n\n+1 ложечка — {extra}".strip()
 
     await state.set_state(Checkout.spoons)
     if product.photo_file_id:
@@ -320,7 +329,7 @@ async def show_spoons_step(
         state,
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 2),
-            f"{product.name}: сколько ложечек?",
+            "Сколько ложечек?",
             body,
         ),
         keyboard=kb.spoons(options, chosen=data.get(SPOON_COUNT)),
@@ -354,19 +363,23 @@ async def show_video_step(
     if addon is None:
         # Услуга выключена в админке — вопрос не задаём.
         await state.update_data({WITH_VIDEO: False})
-        await show_colors_step(event, state, session, kind=KIND_FAVORITE)
+        await show_comment_step(event, state, session)
         return
 
     data = await state.get_data()
+    texts = await settings.get_bot_texts(session)
     await state.set_state(Checkout.video)
     await ui.clear_photo(event, state)
+    description = addon.description or "Снимем сборку именно вашего бокса и пришлём видео."
+    note = texts.no_video_note.strip()
     await ui.show(
         event,
         state,
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 3),
-            "Хотите видео сборки этого бокса?",
-            addon.description or "Снимем, как собираем именно этот бокс, и пришлём вам видео.",
+            "Видео сборки?",
+            # Подпись про бокс без видео владелица правит в панели: «Настройки → Тексты».
+            f"{description}\n\n<i>{note}</i>" if note else description,
         ),
         keyboard=kb.video(addon.price_kopecks, chosen=data.get(WITH_VIDEO)),
     )
@@ -384,117 +397,10 @@ async def choose_video(
         return
     await callback.answer()
     await state.update_data({WITH_VIDEO: callback_data.enabled})
-    await show_colors_step(callback, state, session, kind=KIND_FAVORITE)
+    await show_comment_step(callback, state, session)
 
 
-# --- бокс: шаги 4 и 5, цвета ---
-
-
-async def show_colors_step(
-    event: Message | CallbackQuery,
-    state: FSMContext,
-    session: AsyncSession,
-    *,
-    kind: str,
-) -> None:
-    palette = await catalog.list_active_colors(session)
-    data = await state.get_data()
-    number = data.get(BOX_NUMBER) or 1
-
-    if kind == KIND_FAVORITE:
-        has_video_step = await catalog.get_video_addon(session) is not None
-        step, title, body, back_step, selected = (
-            4,
-            "Любимые цвета",
-            "Отметьте всё, что нравится, — можно несколько. Свои пожелания словами "
-            "напишете на последнем шаге.",
-            "video" if has_video_step else "spoons",
-            data.get(FAVORITE_COLORS) or [],
-        )
-        step_state = Checkout.favorite_colors
-    else:
-        step, title, body, back_step, selected = (
-            5,
-            "Каких цветов лучше избегать?",
-            "Если таких нет — нажмите «Не важно».",
-            "colors_f",
-            data.get(AVOID_COLORS) or [],
-        )
-        step_state = Checkout.avoid_colors
-
-    await state.set_state(step_state)
-    await ui.show(
-        event,
-        state,
-        text=ui.compose(ui.box_header(number, step), title, body),
-        keyboard=kb.colors(palette, selected, kind=kind, back_step=back_step),
-    )
-
-
-@router.callback_query(ColorCB.filter())
-async def toggle_color(
-    callback: CallbackQuery,
-    callback_data: ColorCB,
-    state: FSMContext,
-    session: AsyncSession,
-    customer: Customer,
-) -> None:
-    """Отметить или снять цвет."""
-    if await _draft(callback, state, session, customer) is None:
-        return
-    key = FAVORITE_COLORS if callback_data.kind == KIND_FAVORITE else AVOID_COLORS
-    data = await state.get_data()
-    selected: list[int] = list(data.get(key) or [])
-
-    if callback_data.color_id in selected:
-        selected.remove(callback_data.color_id)
-    else:
-        selected.append(callback_data.color_id)
-
-    await state.update_data({key: selected})
-    await callback.answer()
-    await show_colors_step(callback, state, session, kind=callback_data.kind)
-
-
-@router.callback_query(ColorsDoneCB.filter())
-async def colors_done(
-    callback: CallbackQuery,
-    callback_data: ColorsDoneCB,
-    state: FSMContext,
-    session: AsyncSession,
-    customer: Customer,
-) -> None:
-    if await _draft(callback, state, session, customer) is None:
-        return
-    await callback.answer()
-    if callback_data.kind == KIND_FAVORITE:
-        await show_colors_step(callback, state, session, kind=KIND_AVOID)
-    else:
-        await show_comment_step(callback, state, session)
-
-
-@router.callback_query(SkipCB.filter(F.step.startswith("colors_")))
-async def skip_colors(
-    callback: CallbackQuery,
-    callback_data: SkipCB,
-    state: FSMContext,
-    session: AsyncSession,
-    customer: Customer,
-) -> None:
-    """«Не важно» — цвета этого вида не выбраны."""
-    if await _draft(callback, state, session, customer) is None:
-        return
-    kind = callback_data.step.removeprefix("colors_")
-    key = FAVORITE_COLORS if kind == KIND_FAVORITE else AVOID_COLORS
-    await state.update_data({key: []})
-    await callback.answer()
-    if kind == KIND_FAVORITE:
-        await show_colors_step(callback, state, session, kind=KIND_AVOID)
-    else:
-        await show_comment_step(callback, state, session)
-
-
-# --- бокс: шаг 6, пожелания ---
+# --- бокс: шаг 4, цвета и пожелания текстом ---
 
 
 async def show_comment_step(
@@ -505,19 +411,20 @@ async def show_comment_step(
     texts = await settings.get_bot_texts(session)
     data = await state.get_data()
     current = data.get(COMMENT)
-    hint = f"\n\nСейчас указано: «{truncate(current, 300)}»" if current else ""
+    hint = f"\n\nСейчас: «{truncate(current, 300)}»" if current else ""
+    back_step = "video" if await catalog.get_video_addon(session) is not None else "spoons"
     await state.set_state(Checkout.comment)
+    await ui.clear_photo(event, state)
     await ui.show(
         event,
         state,
         text=ui.compose(
-            ui.box_header(data.get(BOX_NUMBER) or 1, 6),
-            "Есть особые пожелания к этому боксу?",
-            "Напишите сообщением: что положить, чего лучше не класть, для кого подарок "
-            f"и сколько лет получателю.{hint}\n\n"
-            f"<i>{texts.wishes_disclaimer}</i>",
+            ui.box_header(data.get(BOX_NUMBER) or 1, 4),
+            "Цвета и пожелания",
+            "Напишите одним сообщением: какие цвета нравятся, какие не использовать, "
+            f"для кого подарок.{hint}\n\n<i>{texts.wishes_disclaimer}</i>",
         ),
-        keyboard=kb.comment(has_current=bool(current)),
+        keyboard=kb.comment(has_current=bool(current), back_step=back_step),
     )
 
 
@@ -533,8 +440,7 @@ async def receive_comment(
         return
     comment = (message.text or "").strip() or None
     await state.update_data({COMMENT: comment})
-    # Ответ клиента встал под сообщением сценария — следующий шаг покажем ниже него.
-    await ui.retire(message, state, footer=f"✍️ Пожелания: {truncate(comment or '', 200)}")
+    await ui.consume(message, state)
     await _finish_box(message, state, session, order)
 
 
@@ -608,10 +514,7 @@ async def show_cart(
     await state.set_state(Checkout.cart)
     await ui.clear_photo(event, state)
     body = (
-        f"{describe_boxes(order)}\n\n"
-        f"Боксы и услуги: <b>{format_rubles(order.subtotal_kopecks)}</b>\n\n"
-        "Можно добавить ещё бокс — для каждого выберем свои цвета и пожелания. "
-        "Доставка и оплата будут общими."
+        f"{describe_boxes(order)}\n\nБоксы и услуги: <b>{format_rubles(order.subtotal_kopecks)}</b>"
     )
     await ui.show(
         event,
@@ -622,22 +525,42 @@ async def show_cart(
 
 
 def describe_boxes(order: Order) -> str:
-    """Боксы с ценой и пожеланиями — для корзины и итога."""
+    """Боксы построчно: цена бокса, цена каждой услуги и сумма — как в чеке.
+
+    «Бокс 3 ложечки — 1 200 ₽ / + видео сборки — 300 ₽ / = 1 500 ₽».
+    """
     blocks = []
     many = len(order.items) > 1
     for index, item in enumerate(order.items, start=1):
         prefix = f"{index}. " if many else ""
+        name = (
+            item.name_snapshot if item.quantity == 1 else f"{item.name_snapshot} × {item.quantity}"
+        )
         lines = [
-            f"{prefix}<b>{notifications.describe_item(item)}</b> — "
-            f"{format_rubles(item.total_kopecks)}",
+            f"{prefix}<b>{name}</b> — {format_rubles(item.unit_price_kopecks * item.quantity)}",
         ]
-        if item.favorite_colors:
-            lines.append(f"   💗 {', '.join(item.favorite_colors)}")
-        if item.avoid_colors:
-            lines.append(f"   ✖️ не использовать: {', '.join(item.avoid_colors)}")
-        if item.comment:
-            lines.append(f"   ✍️ {truncate(item.comment, 120)}")
+        for addon in item.addons:
+            lines.append(
+                f"   + {addon.name_snapshot.lower()} — {format_rubles(addon.total_kopecks)}"
+            )
+        if item.addons:
+            lines.append(f"   = {format_rubles(item.total_kopecks)}")
+        wishes = ", ".join(
+            part
+            for part in (
+                f"цвета: {', '.join(item.favorite_colors)}" if item.favorite_colors else "",
+                f"без: {', '.join(item.avoid_colors)}" if item.avoid_colors else "",
+                item.comment or "",
+            )
+            if part
+        )
+        if wishes:
+            lines.append(f"   ✍️ {truncate(wishes, 120)}")
         blocks.append("\n".join(lines))
+    blocks.extend(
+        f"{addon.name_snapshot} — {format_rubles(addon.total_kopecks)}"
+        for addon in order.order_addons
+    )
     return "\n".join(blocks)
 
 
@@ -705,7 +628,7 @@ async def _delivery_step(
     if order.pickup_point_id is not None and order.pickup_snapshot:
         await show_pickup_confirm(event, state, order)
     else:
-        await show_pickup_search_step(event, state)
+        await show_pickup_search_step(event, state, session)
 
 
 async def show_pickup_confirm(
@@ -714,29 +637,16 @@ async def show_pickup_confirm(
     order: Order,
 ) -> None:
     snapshot = order.pickup_snapshot or {}
-    lines = [
-        "Доставим туда же, куда в прошлый раз?",
-        "",
-        f"📍 <b>{snapshot.get('address', '')}</b>",
-    ]
+    lines = [f"{provider_icon(snapshot.get('provider'))} <b>{snapshot.get('address', '')}</b>"]
     if snapshot.get("working_hours"):
         lines.append(snapshot["working_hours"])
-    lines.extend(
-        [
-            f"Служба: {snapshot.get('provider_name', '')}",
-            f"Доставка: {format_rubles(order.delivery_kopecks)}",
-        ],
-    )
+    lines.extend(["", f"Доставка: {format_rubles(order.delivery_kopecks)}, входит в чек"])
     await state.set_state(Checkout.pickup_confirm)
     await ui.show(
         event,
         state,
-        text=ui.compose("Доставка", "Пункт выдачи", "\n".join(lines)),
-        keyboard=kb.confirm_prefilled(
-            "pickup",
-            keep="✅ Да, сюда",
-            change="📍 Выбрать другой пункт",
-        ),
+        text=ui.compose(None, "Туда же, куда в прошлый раз?", "\n".join(lines)),
+        keyboard=kb.confirm_prefilled("pickup", keep="✅ Да, сюда", change="📍 Другой пункт"),
     )
 
 
@@ -755,53 +665,40 @@ async def confirm_pickup(
     if callback_data.use and order.pickup_point_id is not None:
         await _after_pickup(callback, state, session, order)
     else:
-        await show_pickup_search_step(callback, state)
+        await show_pickup_search_step(callback, state, session)
 
 
-async def show_pickup_search_step(event: Message | CallbackQuery, state: FSMContext) -> None:
+async def show_pickup_search_step(
+    event: Message | CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+) -> None:
     await state.set_state(Checkout.pickup)
     await state.update_data({PICKUP_OFFSET: 0, PICKUP_QUERY: None})
     await ui.show(
         event,
         state,
         text=ui.compose(
-            "Доставка",
+            None,
             "Куда доставить?",
-            "Доставляем только в пункты выдачи. Отправьте геопозицию — покажем "
-            "ближайшие пункты. Или напишите город и улицу.",
+            "📍 Отправьте геопозицию или напишите город и улицу.\n\n"
+            f"{await _delivery_terms(session)}",
         ),
         keyboard=kb.pickup_search(),
     )
-    # Геопозицию нельзя запросить инлайн-кнопкой — только reply-клавиатурой.
-    await ui.show_helper(
-        event,
-        state,
-        text="Нажмите кнопку ниже или просто напишите адрес.",
-        keyboard=request_location(),
-    )
+    # Геопозицию Telegram отдаёт только кнопкой под полем ввода — инлайн её не запросить.
+    await ui.show_helper(event, state, text="👇", keyboard=request_location())
 
 
-@router.callback_query(StepCB.filter(F.step == "pickup_city"))
-async def ask_city(
-    callback: CallbackQuery,
-    state: FSMContext,
-    session: AsyncSession,
-    customer: Customer,
-) -> None:
-    if await _draft(callback, state, session, customer) is None:
-        return
-    await callback.answer()
-    await state.set_state(Checkout.pickup)
-    await ui.show(
-        callback,
-        state,
-        text=ui.compose(
-            "Доставка",
-            "Куда доставить?",
-            "Напишите город и улицу — найдём пункты выдачи.",
-        ),
-        keyboard=kb.pickup_search(),
-    )
+async def _delivery_terms(session: AsyncSession) -> str:
+    """«📦 СДЭК · 🛍 Яндекс Доставка — 500 ₽, фиксированная, входит в чек»."""
+    providers = await delivery.enabled_providers(session)
+    names = " · ".join(f"{provider_icon(provider.code)} {provider.name}" for provider in providers)
+    fixed = await delivery.fixed_price_kopecks(session)
+    if fixed is None:
+        return names
+    price = f"Доставка — {format_rubles(fixed)}, фиксированная, входит в чек."
+    return f"{names}\n{price}" if names else price
 
 
 @router.message(Checkout.pickup, F.location)
@@ -824,7 +721,7 @@ async def receive_location(
         },
     )
     await _leave_reply_step(message, state)
-    await ui.retire(message, state, footer="📍 Ищем рядом с вашей геопозицией")
+    await ui.consume(message, state)
     await _show_pickup_points(message, state, session)
 
 
@@ -839,14 +736,14 @@ async def receive_city(
         return
     query = (message.text or "").strip()
     if len(query) < 2:
-        await message.answer("Напишите город или улицу целиком — так найдём точнее.")
+        await message.answer("Напишите город или улицу целиком.")
         return
 
     await state.update_data(
         {PICKUP_QUERY: query, PICKUP_LATITUDE: None, PICKUP_LONGITUDE: None, PICKUP_OFFSET: 0},
     )
     await _leave_reply_step(message, state)
-    await ui.retire(message, state, footer=f"🔎 Ищем: {truncate(query, 100)}")
+    await ui.consume(message, state)
     await _show_pickup_points(message, state, session)
 
 
@@ -904,12 +801,9 @@ async def _show_pickup_points(
         )
         points = found_by_text.points
         if not found_by_text.exact and points:
-            note = (
-                "Точно по адресу пунктов не нашли — вот пункты по запросу "
-                f"«{found_by_text.fallback_word}». Можно уточнить улицу или отправить геопозицию."
-            )
+            note = f"Точно по адресу не нашли — пункты по запросу «{found_by_text.fallback_word}»."
     else:
-        await show_pickup_search_step(event, state)
+        await show_pickup_search_step(event, state, session)
         return
 
     has_more = not by_location and len(points) > page
@@ -920,37 +814,31 @@ async def _show_pickup_points(
             event,
             state,
             text=ui.compose(
-                "Доставка",
-                "Пункты выдачи не найдены",
-                "Попробуйте написать только город — например, «Казань», — "
-                "или отправьте геопозицию.",
+                None,
+                "Ничего не нашли",
+                "Напишите только город — например, «Казань» — или отправьте геопозицию.",
             ),
             keyboard=kb.pickup_search(),
         )
         return
 
     lines = [note, ""] if note else []
-    lines.extend(["Выберите пункт выдачи:", ""])
     for point in points:
         distance = distances.get(point.id)
-        suffix = f" · {distance:.1f} км" if distance is not None else ""
-        lines.append(f"📍 <b>{truncate(point.address, 80)}</b>{suffix}")
+        suffix = f" · {distance:.1f} км".replace(".", ",") if distance is not None else ""
+        lines.append(
+            f"{provider_icon(point.provider)} <b>{truncate(point.address, 80)}</b>{suffix}"
+        )
         if point.working_hours:
-            lines.append(f"   {point.working_hours}")
-    lines.append("")
-    lines.append(f"Доставка: {await _delivery_service_names(session)}")
+            lines.append(f"      {truncate(point.working_hours, 80)}")
+    lines.extend(["", await _delivery_terms(session)])
 
     await ui.show(
         event,
         state,
-        text=ui.compose("Доставка", "Куда доставить?", "\n".join(lines)),
+        text=ui.compose(None, "Выберите пункт выдачи", "\n".join(lines)),
         keyboard=kb.pickup_points(points, offset=offset, has_more=has_more),
     )
-
-
-async def _delivery_service_names(session: AsyncSession) -> str:
-    providers = await delivery.enabled_providers(session)
-    return ", ".join(provider.name for provider in providers) or "уточним при сборке"
 
 
 @router.callback_query(PickupCB.filter())
@@ -974,16 +862,7 @@ async def choose_pickup_point(
     await callback.answer()
 
     await _leave_reply_step(callback, state)
-    await ui.show_venue(
-        callback,
-        state,
-        latitude=point.latitude,
-        longitude=point.longitude,
-        title=point.name,
-        address=point.address,
-    )
-    # Карта встала под сообщением сценария — следующий шаг покажем уже под ней.
-    await ui.retire(callback, state, footer=f"✅ Пункт выдачи: {point.address}")
+    # Отдельную карту не шлём: оформление идёт в одном сообщении, адрес виден в итоге.
     await _after_pickup(callback, state, session, order)
 
 
@@ -1019,11 +898,9 @@ async def _recipient_step(
             event,
             state,
             text=ui.compose(
-                "Получатель",
-                "Всё верно?",
-                f"Получатель: <b>{order.recipient_name}</b>\n"
-                f"Телефон: {order.recipient_phone}\n"
-                f"Email для чека: {order.recipient_email}",
+                None,
+                "Получатель — всё верно?",
+                f"👤 {order.recipient_name}\n📱 {order.recipient_phone}\n✉️ {order.recipient_email}",
             ),
             keyboard=kb.confirm_prefilled("recipient", keep="✅ Всё верно", change="✏️ Изменить"),
         )
@@ -1056,16 +933,8 @@ async def show_recipient_name_step(
 ) -> None:
     await state.set_state(Checkout.recipient_name)
     current = order.recipient_name or ""
-    hint = f"\n\nСейчас указано: <b>{current}</b>" if current else ""
-    await ui.show(
-        event,
-        state,
-        text=ui.compose(
-            "Получатель",
-            "Как зовут получателя?",
-            f"Напишите имя — его назовут в пункте выдачи.{hint}",
-        ),
-    )
+    hint = f"Сейчас: <b>{current}</b>" if current else ""
+    await ui.show(event, state, text=ui.compose(None, "Имя получателя", hint))
 
 
 @router.message(Checkout.recipient_name, F.text, NOT_MENU)
@@ -1079,23 +948,19 @@ async def receive_name(
         return
     name = (message.text or "").strip()
     if len(name) < 2:
-        await message.answer("Имя слишком короткое, напишите полностью.")
+        await message.answer("Напишите имя полностью.")
         return
 
     await state.update_data({RECIPIENT_NAME: name})
     await state.set_state(Checkout.recipient_phone)
-    await ui.retire(message, state, footer=f"✅ Получатель: {name}")
+    await ui.consume(message, state)
     await ui.show(
         message,
         state,
-        text=ui.compose(
-            "Получатель",
-            "Телефон получателя",
-            "Нажмите кнопку ниже — телефон подставится сам. Или напишите номер. "
-            "Он нужен службе доставки, чтобы сообщить о посылке.",
-        ),
+        text=ui.compose(None, "Телефон получателя", f"Нажмите «{BTN_SEND_PHONE}» внизу."),
     )
-    await ui.show_helper(message, state, text="Телефон:", keyboard=request_phone())
+    # Контакт Telegram отдаёт только кнопкой под полем ввода — инлайн её не запросить.
+    await ui.show_helper(message, state, text="👇", keyboard=request_phone())
 
 
 @router.message(Checkout.recipient_phone, F.contact)
@@ -1118,7 +983,7 @@ async def receive_phone_text(
     phone = (message.text or "").strip()
     digits = "".join(character for character in phone if character.isdigit())
     if len(digits) < 10:
-        await message.answer("Телефон выглядит неполным. Пример: +7 900 123-45-67")
+        await message.answer("Номер неполный. Пример: +7 900 123-45-67")
         return
     await _save_phone(message, state, session, customer, phone=phone)
 
@@ -1136,7 +1001,7 @@ async def _save_phone(
         return
     await state.update_data({RECIPIENT_PHONE: phone})
     await _leave_reply_step(message, state)
-    await ui.retire(message, state, footer=f"✅ Телефон: {phone}")
+    await ui.consume(message, state)
     await show_email_step(message, state, order)
 
 
@@ -1146,17 +1011,12 @@ async def show_email_step(
     order: Order,
 ) -> None:
     current = order.recipient_email if orders.is_valid_email(order.recipient_email) else None
-    hint = f"\n\nСейчас указано: <b>{current}</b>" if current else ""
+    hint = f"Сейчас: <b>{current}</b>" if current else ""
     await state.set_state(Checkout.recipient_email)
     await ui.show(
         event,
         state,
-        text=ui.compose(
-            "Получатель",
-            "Email для чека",
-            "По закону после оплаты мы отправляем электронный чек — напишите почту, "
-            f"куда его прислать.{hint}",
-        ),
+        text=ui.compose(None, "Email для чека", hint),
         keyboard=kb.email_step(has_current=current is not None),
     )
 
@@ -1170,9 +1030,9 @@ async def receive_email(
 ) -> None:
     email = (message.text or "").strip()
     if not orders.is_valid_email(email):
-        await message.answer("Похоже, в адресе опечатка. Пример: anna@mail.ru")
+        await message.answer("Похоже на опечатку. Пример: anna@mail.ru")
         return
-    await ui.retire(message, state, footer=f"✅ Email для чека: {email}")
+    await ui.consume(message, state)
     await _save_recipient(message, state, session, customer, email=email)
 
 
@@ -1212,9 +1072,7 @@ async def _save_recipient(
             customer=customer,
         )
     except DomainError as error:
-        await ui.show(
-            event, state, text=ui.compose("Получатель", "Проверьте данные", error.message)
-        )
+        await ui.show(event, state, text=ui.compose(None, "Проверьте данные", error.message))
         await show_recipient_name_step(event, state, order)
         return
     await show_summary(event, state, session, order)
@@ -1235,7 +1093,7 @@ async def show_summary(
         return
     if order.pickup_point_id is None:
         await state.update_data({EDITING: True})
-        await show_pickup_search_step(event, state)
+        await show_pickup_search_step(event, state, session)
         return
     if not (
         order.recipient_name
@@ -1249,22 +1107,30 @@ async def show_summary(
     await state.set_state(Checkout.summary)
     await state.update_data({EDITING: False})
     await ui.clear_photo(event, state)
-    await ui.show(event, state, text=summary_text(order), keyboard=kb.summary())
+    calendar = await settings.get_working_calendar(session)
+    spot = await board.estimate_spot(session, order, calendar=calendar)
+    await ui.show(event, state, text=summary_text(order, spot), keyboard=kb.summary())
 
 
-def summary_text(order: Order) -> str:
+def summary_text(order: Order, spot: board.QueueSpot | None = None) -> str:
     snapshot = order.pickup_snapshot or {}
     lines = [
         describe_boxes(order),
+        f"Доставка — {format_rubles(order.delivery_kopecks)}",
         "",
-        f"Боксы и услуги: {format_rubles(order.subtotal_kopecks)}",
-        f"Доставка до пункта выдачи: {format_rubles(order.delivery_kopecks)}",
-        f"<b>ИТОГО: {format_rubles(order.total_kopecks)}</b>",
+        f"<b>Итого: {format_rubles(order.total_kopecks)}</b>",
         "",
-        f"📍 {snapshot.get('address', '')} ({snapshot.get('provider_name', '')})",
+        f"{provider_icon(snapshot.get('provider'))} {snapshot.get('address', '')}",
         f"👤 {order.recipient_name}, {order.recipient_phone}",
-        f"✉️ Чек придёт на {order.recipient_email}",
+        f"✉️ {order.recipient_email}",
     ]
+    if spot is not None:
+        lines.extend(
+            [
+                "",
+                f"🗓 Место в очереди: {spot.position} · соберём к {format_date(spot.ready_date)}",
+            ],
+        )
     return ui.compose(None, "Проверьте заказ", "\n".join(lines))
 
 
@@ -1313,7 +1179,7 @@ async def pay(
         # Оформление закончено — возвращаем главное меню, спрятанное на время заказа.
         await bot.send_message(
             chat_id=chat_id,
-            text="Как только оплата пройдёт, пришлём номер заказа и чек 💗",
+            text="После оплаты пришлём номер заказа и чек 💗",
             reply_markup=main_menu(),
         )
 
@@ -1355,10 +1221,9 @@ async def navigate(
         await show_spoons_step(callback, state, session)
     elif step == "video" and data.get(PRODUCT_ID):
         await show_video_step(callback, state, session)
-    elif step == "colors_f":
-        await show_colors_step(callback, state, session, kind=KIND_FAVORITE)
-    elif step == "colors_a":
-        await show_colors_step(callback, state, session, kind=KIND_AVOID)
+    elif step in {"comment", "colors_f", "colors_a"}:
+        # colors_* — кнопки «Назад» со старых сообщений, где ещё были цвета.
+        await show_comment_step(callback, state, session)
     elif step == "cart":
         await state.update_data(dict.fromkeys(BOX_KEYS))
         if order.items:
@@ -1366,7 +1231,7 @@ async def navigate(
         else:
             await _start_box(callback, state, session, order)
     elif step == "pickup_search":
-        await show_pickup_search_step(callback, state)
+        await show_pickup_search_step(callback, state, session)
     elif step == "recipient":
         await state.update_data({RECIPIENT_NAME: None, RECIPIENT_PHONE: None})
         await show_recipient_name_step(callback, state, order)
@@ -1395,14 +1260,13 @@ async def _cancel_checkout(
         await session.delete(draft)
         await session.flush()
 
-    await _reset(event, state, footer="✖️ Оформление отменено")
-    bot, chat_id = ui.target(event)
-    if bot is not None and chat_id is not None:
-        await bot.send_message(
-            chat_id=chat_id,
-            text="Оформление отменено. Если что — начнём заново 💗",
-            reply_markup=main_menu(),
-        )
+    # Сообщение сценария становится меню — без лишних сообщений в чате.
+    data = await state.get_data()
+    await ui.clear_photo(event, state)
+    await ui.clear_helper(event, state)
+    await _leave_reply_keyboard(event, data)
+    await state.clear()
+    await ui.reply(event, text="Оформление отменено 💗", keyboard=main_menu())
 
 
 # --- служебное ---
@@ -1419,6 +1283,12 @@ async def _reset(
     await ui.clear_photo(event, state)
     await ui.clear_helper(event, state)
     await state.clear()
+
+
+async def _leave_reply_keyboard(event: Message | CallbackQuery, data: dict) -> None:
+    """Убрать клавиатуру под полем ввода, если шаг с ней (телефон, геопозиция) был открыт."""
+    if data.get(HELPER_MESSAGE_ID) is not None:
+        await ui.hide_reply_keyboard(event)
 
 
 async def _leave_reply_step(event: Message | CallbackQuery, state: FSMContext) -> None:
@@ -1448,12 +1318,9 @@ async def _draft(
 
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await ui.mark_choice(event.message, "⌛ Оформление устарело")
         await ui.clear_helper(event, state)
         await state.clear()
-        if event.message is not None:
-            # Меню было спрятано на время оформления — возвращаем его вместе с подсказкой.
-            await event.message.answer(STALE_TEXT, reply_markup=main_menu())
+        await ui.reply(event, text=STALE_TEXT, keyboard=main_menu())
     else:
         await _reset(event, state)
         await event.answer(STALE_TEXT, reply_markup=main_menu())

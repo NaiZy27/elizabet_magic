@@ -6,15 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Вход — Elizabet Magic</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=5">
 </head>
 <body>
 <div class="login-page">
   <div class="card login-card">
-    <div class="eyebrow">Elizabet Magic</div>
-    <h1 style="font-family: Georgia, serif; margin-top: 0;">Вход в панель</h1>
+    <span class="brand-mark" style="display:grid">E</span>
+    <h1>Вход в панель</h1>
 
-    {% if error %}<div class="errors">{{ error }}</div>{% endif %}
+    {% if error %}<div class="errors" role="alert">{{ error }}</div>{% endif %}
 
     <form method="post" action="/admin/login">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

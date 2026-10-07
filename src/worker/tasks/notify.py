@@ -17,6 +17,7 @@ from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramRetryAfter,
 )
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from core.clock import format_date, now_utc
 from core.config import get_settings
@@ -68,7 +69,7 @@ async def notify_customer(
         return
 
     try:
-        await _send(chat_id, text)
+        await _send(chat_id, text, reply_markup=_customer_keyboard(key, order_id))
     except TelegramForbiddenError:
         await _record(order_id, key, sent=False, reason="бот заблокирован клиентом")
         async with session_scope() as session:
@@ -222,13 +223,48 @@ def _order_outcome(order: Order) -> str | None:
     return None
 
 
-async def _send(chat_id: int, text: str) -> None:
+def _customer_keyboard(key: MessageTemplateKey, order_id: int) -> InlineKeyboardMarkup | None:
+    """Кнопка под уведомлением: после получения заказа просим отзыв."""
+    if key != MessageTemplateKey.STATUS_COMPLETED:
+        return None
+    # Импорт здесь: воркеру клиентский бот целиком не нужен, только формат кнопки.
+    from bot.callbacks import ReviewCB
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💌 Оставить отзыв",
+                    callback_data=ReviewCB(action="new", order_id=order_id).pack(),
+                    style="primary",
+                ),
+            ],
+        ],
+    )
+
+
+async def _send(
+    chat_id: int,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
     """Отправить сообщение, один раз переждав ограничение частоты."""
     bot = get_bot()
     try:
-        await bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
     except TelegramRetryAfter as error:
         wait = min(error.retry_after, _MAX_RETRY_WAIT_SECONDS)
         logger.info("Telegram просит подождать %s с", wait)
         await asyncio.sleep(wait)
-        await bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )

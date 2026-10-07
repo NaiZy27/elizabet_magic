@@ -18,6 +18,7 @@ from core.config import get_settings
 from core.enums import AddonChargeMode
 from core.models import Addon, Color, Product, ProductVariant
 from core.money import parse_rubles
+from core.services import analytics
 from core.services import catalog as catalog_service
 from web.security import CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
@@ -33,7 +34,9 @@ MAX_PHOTO_BYTES = 10 * 1024 * 1024
 @router.get("")
 async def catalog_page(request: Request, session: DbSession, admin: CurrentOwner):
     products = await catalog_service.list_products_for_admin(session)
-    addons = await session.scalars(select(Addon).order_by(Addon.sort_order, Addon.id))
+    addons = await session.scalars(
+        select(Addon).where(Addon.archived_at.is_(None)).order_by(Addon.sort_order, Addon.id),
+    )
     colors = await session.scalars(select(Color).order_by(Color.sort_order, Color.id))
 
     return render(
@@ -41,6 +44,8 @@ async def catalog_page(request: Request, session: DbSession, admin: CurrentOwner
         "admin/catalog.html",
         {
             "products": products,
+            "notice": NOTICES.get(request.query_params.get("done", "")),
+            "sold_30d": await analytics.product_sales(session, days=30),
             "addons": list(addons),
             "colors": list(colors),
             "admin": admin,
@@ -73,7 +78,8 @@ async def edit_product(
         {
             "product": product,
             "variants": catalog_service.active_variants(product.variants),
-            "all_variants": sorted(product.variants, key=lambda item: item.sort_order),
+            "all_variants": catalog_service.visible_variants(product.variants),
+            "notice": NOTICES.get(request.query_params.get("done", "")),
             "admin": admin,
             "csrf_token": csrf_token(request),
         },
@@ -304,9 +310,86 @@ async def save_color(
     return RedirectResponse("/admin/catalog", status_code=status.HTTP_303_SEE_OTHER)
 
 
+#: Что сказать после удаления: удалено совсем или ушло в архив из-за старых заказов.
+NOTICES = {
+    "deleted": "Удалено.",
+    "archived": "Убрано из каталога и бота. В старых заказах позиция осталась — история не пострадала.",
+}
+
+
+@router.post("/products/{product_id}/delete")
+async def delete_product(
+    request: Request,
+    product_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    verify_csrf(request, csrf)
+    product = await _get_product(session, product_id)
+    removed = await catalog_service.delete_product(session, product)
+    return _done("/admin/catalog", removed)
+
+
+@router.post("/products/{product_id}/variants/{variant_id}/delete")
+async def delete_variant(
+    request: Request,
+    product_id: int,
+    variant_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    verify_csrf(request, csrf)
+    variant = await session.get(ProductVariant, variant_id)
+    if variant is None or variant.product_id != product_id or variant.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Вариант не найден")
+    removed = await catalog_service.delete_variant(session, variant)
+    return _done(f"/admin/catalog/products/{product_id}", removed)
+
+
+@router.post("/addons/{addon_id}/delete")
+async def delete_addon(
+    request: Request,
+    addon_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    verify_csrf(request, csrf)
+    addon = await session.get(Addon, addon_id)
+    if addon is None or addon.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Услуга не найдена")
+    removed = await catalog_service.delete_addon(session, addon)
+    return _done("/admin/catalog", removed)
+
+
+@router.post("/colors/{color_id}/delete")
+async def delete_color(
+    request: Request,
+    color_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    verify_csrf(request, csrf)
+    color = await session.get(Color, color_id)
+    if color is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Цвет не найден")
+    await catalog_service.delete_color(session, color)
+    return _done("/admin/catalog", True)
+
+
+def _done(url: str, removed: bool) -> RedirectResponse:
+    return RedirectResponse(
+        f"{url}?done={'deleted' if removed else 'archived'}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 async def _get_product(session, product_id: int) -> Product:
     product = await session.scalar(
-        select(Product).where(Product.id == product_id),
+        select(Product).where(Product.id == product_id, Product.archived_at.is_(None)),
     )
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Бокс не найден")

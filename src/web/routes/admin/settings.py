@@ -124,7 +124,7 @@ async def save_template(
     template.is_enabled = is_enabled
 
     await session.flush()
-    return _back()
+    return _back("texts")
 
 
 @router.post("/calendar")
@@ -134,9 +134,11 @@ async def save_calendar(
     admin: CurrentOwner,
     weekdays: Annotated[list[int], Form()] = [],  # noqa: B006 — так FastAPI читает чекбоксы
     holidays: Annotated[str, Form()] = "",
+    video_boxes_per_day: Annotated[int, Form(ge=1, le=50)] = 2,
+    plain_boxes_per_day: Annotated[int, Form(ge=1, le=50)] = 4,
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
-    """Рабочие дни и выходные даты — от них зависят все даты готовности."""
+    """Рабочие дни, выходные и дневной лимит — от них зависят все даты готовности."""
     verify_csrf(request, csrf)
     parsed: list[dt.date] = []
     for line in holidays.replace(",", "\n").split("\n"):
@@ -160,7 +162,12 @@ async def save_calendar(
     await settings_service.write_setting(
         session,
         SettingKey.WORKING_CALENDAR,
-        WorkingCalendarSettings(weekdays=weekdays, holidays=parsed),
+        WorkingCalendarSettings(
+            weekdays=weekdays,
+            holidays=parsed,
+            video_boxes_per_day=video_boxes_per_day,
+            plain_boxes_per_day=plain_boxes_per_day,
+        ),
     )
     return _back()
 
@@ -268,7 +275,7 @@ async def save_contacts(
             tiktok=tiktok.strip() or None,
         ),
     )
-    return _back()
+    return _back("texts")
 
 
 @router.post("/faq")
@@ -288,7 +295,7 @@ async def save_faq(
         if question.strip() and answer.strip()
     ]
     await settings_service.write_setting(session, SettingKey.FAQ, FaqSettings(items=items))
-    return _back()
+    return _back("texts")
 
 
 @router.post("/bot-texts")
@@ -300,6 +307,7 @@ async def save_bot_texts(
     wishes_disclaimer: Annotated[str, Form()],
     consent_text: Annotated[str, Form()],
     consent_url: Annotated[str, Form()] = "",
+    no_video_note: Annotated[str, Form()] = "",
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
     verify_csrf(request, csrf)
@@ -311,10 +319,13 @@ async def save_bot_texts(
             wishes_disclaimer=wishes_disclaimer.strip(),
             consent_text=consent_text.strip(),
             consent_url=consent_url.strip() or None,
+            no_video_note=no_video_note.strip(),
         ),
     )
-    return _back()
+    return _back("texts")
 
 
-def _back() -> RedirectResponse:
-    return RedirectResponse("/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+def _back(tab: str = "") -> RedirectResponse:
+    """Вернуться в настройки на ту же вкладку, где сохраняли."""
+    url = f"/admin/settings?tab={tab}" if tab else "/admin/settings"
+    return RedirectResponse(url, status_code=status.HTTP_303_SEE_OTHER)

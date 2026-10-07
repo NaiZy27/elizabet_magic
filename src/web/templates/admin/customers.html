@@ -1,48 +1,64 @@
 {% extends "admin/base.html" %}
+{% from "admin/_ui.html" import search, tabs %}
 {% block title %}Клиенты{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">База клиентов</div>
+<div class="page-head">
+  <div class="head-left">
     <h1>Клиенты</h1>
-    <p>Число заказов и сумма покупок считаются по оплаченным заказам.</p>
+    {{ tabs([('/admin/customers', 'Покупатели', True), ('/admin/reviews', 'Отзывы', False)]) }}
   </div>
 </div>
 
-<form class="filters" method="get">
-  <input name="q" value="{{ q }}" placeholder="Имя, @ник, телефон или id в Telegram">
-  <button type="submit">Найти</button>
+<section class="tiles">
+  <div class="tile hero">
+    <span class="tile-label">Покупатели</span>
+    <span class="tile-value" data-count>{{ summary.buyers }}</span>
+    <span class="tile-note">+{{ summary.new_30d }} новых за 30 дней</span>
+  </div>
+  <div class="tile">
+    <span class="tile-label">Возвращаемость</span>
+    <span class="tile-value">{{ summary.repeat_percent }}%</span>
+    <div class="meter"><span style="width: {{ summary.repeat_percent }}%"></span></div>
+    <span class="tile-note">{{ summary.repeat }} {{ summary.repeat | pluralize_ru('человек', 'человека', 'человек') }} купили больше одного раза</span>
+  </div>
+  <div class="tile blush">
+    <span class="tile-label">LTV</span>
+    <span class="tile-value" style="font-size:32px">{{ summary.average_ltv_kopecks | rubles }}</span>
+    <span class="tile-note">приносит один клиент в среднем за всё время</span>
+  </div>
+</section>
+
+<form class="toolbar" method="get">
+  {{ search('q', q, 'Имя, @ник или телефон') }}
 </form>
 
-<div class="card">
+<div class="card table-card">
   {% if rows %}
-    <table>
+    <table class="rtable">
       <thead>
-        <tr><th>Клиент</th><th>Telegram</th><th>Телефон</th><th>Заказов</th><th>Куплено на</th><th>Последний заказ</th></tr>
+        <tr><th>Клиент</th><th>Телефон</th><th class="num">Заказов</th><th class="num">Купил на</th><th class="num">Последний</th></tr>
       </thead>
       <tbody>
         {% for customer, orders_count, total_kopecks, last_order_at in rows %}
           <tr>
-            <td>
-              {{ customer.display_name }}
-              {% if customer.bot_blocked_at %}<br><span class="badge cancelled">Заблокировал бота</span>{% endif %}
+            <td class="primary">
+              <b>{{ customer.display_name }}</b>{% if orders_count > 1 %} <span class="tag accent" style="vertical-align:2px">постоянный</span>{% endif %}
+              <div class="small">
+                {% if customer.username %}<a href="https://t.me/{{ customer.username }}" rel="noreferrer" style="color:var(--brand);font-weight:400">@{{ customer.username }}</a>{% endif %}
+                {% if customer.bot_blocked_at %}<span class="status bad muted">заблокировал бота</span>{% endif %}
+              </div>
             </td>
-            <td>
-              {% if customer.username %}
-                <a href="https://t.me/{{ customer.username }}" rel="noreferrer">@{{ customer.username }}</a>
-              {% else %}<span class="muted">—</span>{% endif %}
-            </td>
-            <td>{{ customer.phone or '—' }}</td>
-            <td>{{ orders_count }}</td>
-            <td>{{ total_kopecks | rubles }}</td>
-            <td>{{ last_order_at | ru_datetime }}</td>
+            <td data-label="Телефон">{{ customer.phone or '—' }}</td>
+            <td class="num" data-label="Заказов">{{ orders_count }}</td>
+            <td class="num" data-label="Купил на"><b>{{ total_kopecks | rubles }}</b></td>
+            <td class="num" data-label="Последний">{{ last_order_at | ru_datetime_short }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   {% else %}
-    <div class="empty">Клиентов не найдено.</div>
+    <div class="empty"><b>Клиентов не найдено</b>{% if q %}Попробуйте другой запрос.{% else %}Они появятся после первых заказов в боте.{% endif %}</div>
   {% endif %}
 </div>
 

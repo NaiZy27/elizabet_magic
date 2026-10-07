@@ -1,75 +1,146 @@
 {% extends "admin/base.html" %}
+{% from "admin/_ui.html" import tabs %}
+{% from "admin/_charts.html" import bar_chart, donut, delta_badge, spark, funnel %}
 {% block title %}Статистика{% endblock %}
 
 {% block content %}
-<div class="topline">
-  <div>
-    <div class="eyebrow">Аналитика</div>
+<div class="page-head">
+  <div class="head-left">
     <h1>Статистика</h1>
-    <p>За период с {{ stats.since | ru_date }} по {{ stats.until | ru_date }}.
-      Считаются только оплаченные заказы.</p>
+    {{ tabs([('/admin/stats', 'Итоги', True), ('/admin/payments', 'Платежи', False)]) }}
   </div>
 </div>
 
-<form class="filters" method="get">
-  {% for value, label in periods.items() %}
-    <button class="{{ '' if period == value else 'secondary' }}" name="period" value="{{ value }}" type="submit">{{ label }}</button>
-  {% endfor %}
-  <input type="date" name="since" value="{{ stats.since.isoformat() }}">
-  <input type="date" name="until" value="{{ stats.until.isoformat() }}">
+<form class="toolbar" method="get">
+  <nav class="tabs">
+    {% for value, label in periods.items() %}
+      <button class="{{ 'on' if period == value }}" name="period" value="{{ value }}" type="submit">{{ label }}</button>
+    {% endfor %}
+  </nav>
+  <details class="dropdown">
+    <summary class="{{ 'on' if period == 'custom' }}">{{ stats.since | ru_day_month }} — {{ stats.until | ru_day_month }}</summary>
+    <div class="dropdown-panel">
+      <div><span class="label">С</span><input type="date" name="since" value="{{ stats.since.isoformat() }}"></div>
+      <div><span class="label">По</span><input type="date" name="until" value="{{ stats.until.isoformat() }}"></div>
+      <button name="period" value="custom" type="submit">Показать</button>
+    </div>
+  </details>
 </form>
 
-<section class="grid">
-  <div class="card metric"><span class="muted">Оплаченных заказов</span><strong>{{ stats.paid_orders }}</strong><small>за период</small></div>
-  <div class="card metric"><span class="muted">Выручка</span><strong>{{ stats.revenue_kopecks | rubles }}</strong><small>вместе с доставкой</small></div>
-  <div class="card metric"><span class="muted">Без доставки</span><strong>{{ stats.revenue_without_delivery_kopecks | rubles }}</strong><small>чистая выручка за боксы</small></div>
-  <div class="card metric"><span class="muted">Средний чек</span><strong>{{ stats.average_check_kopecks | rubles }}</strong><small>на один заказ</small></div>
-  <div class="card metric"><span class="muted">Отмен</span><strong>{{ stats.cancelled_orders }}</strong><small>включая неоплаченные</small></div>
+{# Динамика по дням; длинный период — по неделям, чтобы столбики не превращались в штрихкод. #}
+{% set ns = namespace(values=[], labels=[], titles=[], orders=[]) %}
+{% if trend.days | length > 45 %}
+  {% for group in trend.days | batch(7) %}
+    {% set amount = group | sum(attribute='revenue_kopecks') %}
+    {% set count = group | sum(attribute='orders') %}
+    {% set ns.values = ns.values + [amount] %}
+    {% set ns.orders = ns.orders + [count] %}
+    {% set ns.labels = ns.labels + [group[0].day | ru_day_month] %}
+    {% set ns.titles = ns.titles + ['Неделя с ' ~ (group[0].day | ru_day_month) ~ ': ' ~ (amount | rubles) ~ ' · заказов ' ~ count] %}
+  {% endfor %}
+  {% set unit = 'по неделям' %}
+{% else %}
+  {% for point in trend.days %}
+    {% set ns.values = ns.values + [point.revenue_kopecks] %}
+    {% set ns.orders = ns.orders + [point.orders] %}
+    {% set ns.labels = ns.labels + [point.day | ru_day_month] %}
+    {% set ns.titles = ns.titles + [(point.day | ru_weekday) ~ ', ' ~ (point.day | ru_day_month) ~ ': ' ~ (point.revenue_kopecks | rubles) ~ ' · заказов ' ~ point.orders] %}
+  {% endfor %}
+  {% set unit = 'по дням' %}
+{% endif %}
+
+<section class="tiles kpi">
+  <div class="tile hero big wide">
+    <span class="tile-label">Выручка {{ delta_badge(stats.revenue_kopecks, trend.previous_revenue_kopecks) }}</span>
+    <span class="tile-value" data-count>{{ stats.revenue_kopecks | rubles }}</span>
+    <span class="tile-note">без доставки {{ stats.revenue_without_delivery_kopecks | rubles }}</span>
+    {{ spark(ns.values) }}
+  </div>
+  <div class="tile">
+    <span class="tile-label">Заказов {{ delta_badge(stats.paid_orders, trend.previous_orders) }}</span>
+    <span class="tile-value" data-count>{{ stats.paid_orders }}</span>
+    <span class="tile-note">{{ trend.boxes_sold }} {{ trend.boxes_sold | pluralize_ru('бокс', 'бокса', 'боксов') }}</span>
+  </div>
+  <div class="tile blush">
+    <span class="tile-label">Средний чек {{ delta_badge(stats.average_check_kopecks, trend.previous_average_kopecks) }}</span>
+    <span class="tile-value" style="font-size:32px">{{ stats.average_check_kopecks | rubles }}</span>
+  </div>
+  <div class="tile">
+    <span class="tile-label">Отмен</span>
+    <span class="tile-value">{{ stats.cancelled_orders }}</span>
+    <span class="tile-note">включая неоплаченные</span>
+  </div>
 </section>
 
-<div class="split">
+<section class="card">
+  <div class="card-head">
+    <h2>Выручка {{ unit }}</h2>
+    {% set best = ns.values | max if ns.values else 0 %}
+    {% if best %}<span class="muted">лучший {{ 'день' if unit == 'по дням' else 'неделя' }}: {{ best | short_rubles }}</span>{% endif %}
+  </div>
+  {% if stats.paid_orders %}
+    {{ bar_chart(ns.values, ns.labels, ns.titles, height=130, money=True) }}
+  {% else %}
+    <div class="empty"><b>За период оплат не было</b>Выберите период побольше.</div>
+  {% endif %}
+</section>
+
+<div class="grid-3 section-gap">
   <section class="card">
-    <h2>Популярные боксы</h2>
-    {% if stats.top_products %}
-      <table>
-        <thead><tr><th>Бокс</th><th>Штук</th><th>Выручка</th></tr></thead>
-        <tbody>
-          {% for product in stats.top_products %}
-            <tr>
-              <td>{{ product.name }}</td>
-              <td>{{ product.quantity }}</td>
-              <td>{{ product.revenue_kopecks | rubles }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="empty">За этот период заказов не было.</div>
-    {% endif %}
+    <div class="card-head"><h2>Что покупают</h2></div>
+    {% set product_parts = [] %}
+    {% for product in stats.top_products %}{% set _ = product_parts.append((product.name, product.quantity)) %}{% endfor %}
+    {{ donut(product_parts, trend.boxes_sold, 'боксов') }}
   </section>
 
-  <div class="stack">
-    <section class="card">
-      <h2>Видео сборки</h2>
-      <div class="kv"><span class="muted">Заказов с видео</span><strong>{{ stats.orders_with_video }}</strong></div>
-      <div class="kv"><span class="muted">Доля</span><strong>{{ stats.video_share }}%</strong></div>
-    </section>
+  <section class="card">
+    <div class="card-head"><h2>Видео сборки</h2></div>
+    {{ donut([('С видео', stats.orders_with_video), ('Без видео', stats.paid_orders - stats.orders_with_video)], stats.video_share ~ '%', 'с видео') }}
+    <p class="muted small" style="margin:16px 0 0">Видео — доп. продажа: чем выше доля, тем выше средний чек.</p>
+  </section>
 
-    <section class="card">
-      <h2>Клиенты</h2>
-      <div class="kv"><span class="muted">Покупали за период</span><strong>{{ stats.unique_customers }}</strong></div>
-      <div class="kv"><span class="muted">Возвращаются</span><strong>{{ stats.repeat_customers }}</strong></div>
-      <p class="helptext muted">Возвращаются — те, у кого за всё время больше одного оплаченного заказа.</p>
-    </section>
-
-    <section class="card">
-      <h2>Службы доставки</h2>
-      {% for code, count in stats.by_delivery_provider.items() %}
-        <div class="kv"><span class="muted">{{ provider_labels.get(code, code) }}</span><strong>{{ count }}</strong></div>
-      {% else %}
-        <p class="muted">Данных пока нет.</p>
-      {% endfor %}
-    </section>
-  </div>
+  <section class="card">
+    <div class="card-head"><h2>Покупатели</h2></div>
+    {% set buyers = trend.new_customers + trend.returning_customers %}
+    {{ donut([('Новые', trend.new_customers), ('Вернулись', trend.returning_customers)], buyers, 'человек') }}
+    <p class="muted small" style="margin:16px 0 0">За всё время вернулись {{ stats.repeat_customers }} из {{ stats.unique_customers if stats.unique_customers > stats.repeat_customers else stats.repeat_customers }}.</p>
+  </section>
 </div>
+
+<div class="grid-3 section-gap">
+  <section class="card">
+    <div class="card-head"><h2>Дни недели</h2><span class="muted">заказы</span></div>
+    {% set wd_titles = [] %}
+    {% for count in trend.weekdays %}{% set _ = wd_titles.append((loop.index0 | ru_weekday) ~ ': ' ~ count) %}{% endfor %}
+    {{ bar_chart(trend.weekdays, ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'], wd_titles, height=120) }}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Воронка бота</h2></div>
+    {{ funnel([('Начали оформлять', trend.funnel.started), ('Дошли до оплаты', trend.funnel.submitted), ('Оплатили', trend.funnel.paid)]) }}
+    <p class="muted small" style="margin:16px 0 0">Сколько людей бросают заказ на полпути — повод упростить шаги в боте.</p>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Доставка</h2></div>
+    {% set provider_parts = [] %}
+    {% for code, count in stats.by_delivery_provider.items() %}{% set _ = provider_parts.append((provider_labels.get(code, code), count)) %}{% endfor %}
+    {{ donut(provider_parts, stats.paid_orders, 'заказов') }}
+  </section>
+</div>
+
+{% if stats.top_products %}
+<section class="card section-gap">
+  <div class="card-head"><h2>Выручка по боксам</h2></div>
+  {% set top_revenue = stats.top_products | map(attribute='revenue_kopecks') | max %}
+  <div class="bars">
+    {% for product in stats.top_products %}
+      <div class="bar-row">
+        <div class="bar-top"><b>{{ product.name }}</b><span class="muted">{{ product.quantity }} шт · {{ product.revenue_kopecks | rubles }}</span></div>
+        <div class="meter"><span style="width: {{ pct(product.revenue_kopecks, top_revenue) }}%; animation-delay: {{ loop.index0 * 80 }}ms"></span></div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 {% endblock %}

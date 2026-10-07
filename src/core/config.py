@@ -64,6 +64,8 @@ class OwnerSettings(BaseSettings):
 
     owner_chat_id: int | None = None
     service_chat_id: int | None = None
+    #: Канал для отзывов: числовой id (-100…) или @имя. Бот должен быть в нём админом.
+    reviews_channel_id: str | None = None
 
 
 class AdminSettings(BaseSettings):

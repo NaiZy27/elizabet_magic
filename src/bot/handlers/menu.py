@@ -1,20 +1,30 @@
-"""Главное меню и справочные разделы: цены, доставка, вопросы, контакты."""
+"""Главное меню и справочные разделы: цены, доставка, вопросы, контакты.
+
+Меню живёт в одном сообщении: раздел открывается на месте меню, «← Меню»
+возвращает обратно.
+"""
 
 from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import ui
+from bot.callbacks import MenuCB
+from bot.emoji import provider_icon
 from bot.keyboards.common import (
     BTN_CONTACTS,
     BTN_DELIVERY,
     BTN_FAQ,
     BTN_PRICES,
+    back_to_menu,
     main_menu,
+    menu_button,
+    request_location,
 )
 from core.enums import AddonChargeMode
 from core.money import format_rubles
@@ -23,6 +33,8 @@ from core.services.catalog import active_variants
 from core.text import spoons_phrase
 
 router = Router(name="menu")
+
+Event = Message | CallbackQuery
 
 
 @router.message(CommandStart(deep_link=True))
@@ -33,31 +45,31 @@ async def start_with_payload(
     session: AsyncSession,
 ) -> None:
     """Возврат из оплаты: t.me/бот?start=paid_<токен>."""
-    payload = command.args or ""
-    texts = await settings.get_bot_texts(session)
-    if payload.startswith("paid_"):
+    if (command.args or "").startswith("paid_"):
         await message.answer(
-            "Спасибо! Как только оплата подтвердится, пришлём сообщение о том, "
-            "что заказ принят в работу. Обычно это занимает меньше минуты.",
+            "Спасибо! Как только оплата подтвердится, пришлём номер заказа 💗",
             reply_markup=main_menu(),
         )
         return
-    await _leave_checkout(message, state)
-    await message.answer(texts.greeting, reply_markup=main_menu())
+    await start(message, state, session)
 
 
 @router.message(CommandStart())
+@router.message(Command("menu"))
 async def start(message: Message, state: FSMContext, session: AsyncSession) -> None:
     await _leave_checkout(message, state)
+    # Убираем клавиатуру под полем ввода, если она осталась от прошлой версии бота.
+    await ui.hide_reply_keyboard(message)
     texts = await settings.get_bot_texts(session)
     await message.answer(texts.greeting, reply_markup=main_menu())
 
 
-@router.message(Command("menu"))
-async def show_menu(message: Message, state: FSMContext) -> None:
-    """Вернуться в меню, прервав незаконченный шаг."""
-    await _leave_checkout(message, state)
-    await message.answer("Главное меню", reply_markup=main_menu())
+@router.callback_query(MenuCB.filter(F.section == "home"))
+async def home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await callback.answer()
+    await ui.clear_helper(callback, state)
+    texts = await settings.get_bot_texts(session)
+    await ui.reply(callback, text=texts.greeting, keyboard=main_menu())
 
 
 async def _leave_checkout(message: Message, state: FSMContext) -> None:
@@ -67,14 +79,22 @@ async def _leave_checkout(message: Message, state: FSMContext) -> None:
     await state.clear()
 
 
+# --- цены ---
+
+
+@router.callback_query(MenuCB.filter(F.section == "prices"))
+async def prices_button(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    await show_prices(callback, session)
+
+
 @router.message(F.text == BTN_PRICES)
-async def show_prices(message: Message, session: AsyncSession) -> None:
-    """Реальные цены из каталога, а не отсылка «уточняйте при заказе»."""
+async def show_prices(event: Event, session: AsyncSession) -> None:
+    """Реальные цены из каталога, а не «уточняйте при заказе»."""
     products = await catalog.list_active_products(session)
     if not products:
-        await message.answer(
-            "Каталог сейчас обновляется. Загляните чуть позже или напишите нам.",
-            reply_markup=main_menu(),
+        await ui.reply(
+            event, text="Каталог обновляется — загляните чуть позже.", keyboard=back_to_menu()
         )
         return
 
@@ -82,79 +102,109 @@ async def show_prices(message: Message, session: AsyncSession) -> None:
     for product in products:
         lines = [f"\n<b>{product.name}</b>"]
         for variant in active_variants(product.variants):
-            price = format_rubles(variant.price_kopecks)
-            lines.append(f"{spoons_phrase(variant.spoon_count)} — {price}")
-        if product.allows_extra_spoons and product.extra_spoon_price_kopecks is not None:
             lines.append(
-                f"Каждая следующая ложечка — {format_rubles(product.extra_spoon_price_kopecks)}"
-                f" (максимум {product.max_spoon_count})",
+                f"{spoons_phrase(variant.spoon_count)} — {format_rubles(variant.price_kopecks)}"
             )
+        if product.allows_extra_spoons and product.extra_spoon_price_kopecks is not None:
+            lines.append(f"+1 ложечка — {format_rubles(product.extra_spoon_price_kopecks)}")
         blocks.append("\n".join(lines))
 
     addons = await catalog.list_active_addons(session)
-    if addons:
-        blocks.append("\n<b>Дополнительно</b>")
-        for addon in addons:
-            suffix = (
-                "за каждый бокс" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
-            )
-            blocks.append(f"{addon.name} — +{format_rubles(addon.price_kopecks)} {suffix}")
+    for addon in addons:
+        suffix = "за бокс" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
+        blocks.append(f"\n{addon.name} — +{format_rubles(addon.price_kopecks)} {suffix}")
 
-    await message.answer("\n".join(blocks), reply_markup=main_menu())
+    fixed = await delivery.fixed_price_kopecks(session)
+    if fixed is not None:
+        blocks.append(f"Доставка — {format_rubles(fixed)}")
+
+    await ui.reply(event, text="\n".join(blocks), keyboard=_order_or_back())
+
+
+def _order_or_back():
+    builder = InlineKeyboardBuilder()
+    builder.row(menu_button("🛍 Заказать бокс", "order", style="primary"))
+    builder.row(menu_button("← Меню", "home"))
+    return builder.as_markup()
+
+
+# --- доставка ---
+
+
+@router.callback_query(MenuCB.filter(F.section == "delivery"))
+async def delivery_button(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    await show_delivery(callback, session)
 
 
 @router.message(F.text == BTN_DELIVERY)
-async def show_delivery(message: Message, session: AsyncSession) -> None:
+async def show_delivery(event: Event, session: AsyncSession) -> None:
     providers = await delivery.enabled_providers(session)
-    if not providers:
-        await message.answer(
-            "Доставку настраиваем — напишите нам, и мы подберём удобный вариант.",
-            reply_markup=main_menu(),
-        )
-        return
+    lines = ["<b>🚚 Доставка</b>", ""]
+    if providers:
+        lines.extend(f"{provider_icon(provider.code)} {provider.name}" for provider in providers)
+    else:
+        lines.append("Пункты выдачи СДЭК и Яндекса")
+    fixed = await delivery.fixed_price_kopecks(session)
+    if fixed is not None:
+        lines.extend(["", f"Стоимость — {format_rubles(fixed)}, фиксированная, входит в чек."])
 
-    names = ", ".join(provider.name for provider in providers)
-    await message.answer(
-        "<b>🚚 Доставка</b>\n\n"
-        f"Отправляем в пункты выдачи: {names}.\n"
-        "При оформлении заказа можно отправить геопозицию — покажем ближайшие пункты "
-        "с адресами и режимом работы, а стоимость посчитаем сразу.\n\n"
-        "Собираем заказ, отвозим в службу доставки и присылаем номер для отслеживания.",
-        reply_markup=main_menu(),
+    builder = InlineKeyboardBuilder()
+    builder.row(menu_button("📍 Ближайшие пункты", "nearest"))
+    builder.row(menu_button("← Меню", "home"))
+    await ui.reply(event, text="\n".join(lines), keyboard=builder.as_markup())
+
+
+@router.callback_query(MenuCB.filter(F.section == "nearest"))
+async def ask_location(callback: CallbackQuery, state: FSMContext) -> None:
+    """Геопозицию Telegram отдаёт только кнопкой под полем ввода — показываем её."""
+    await callback.answer()
+    await ui.show_helper(
+        callback, state, text="Отправьте геопозицию 👇", keyboard=request_location()
     )
 
 
+# --- вопросы и контакты ---
+
+
+@router.callback_query(MenuCB.filter(F.section == "faq"))
+async def faq_button(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    await show_faq(callback, session)
+
+
 @router.message(F.text == BTN_FAQ)
-async def show_faq(message: Message, session: AsyncSession) -> None:
+async def show_faq(event: Event, session: AsyncSession) -> None:
     faq = await settings.get_faq(session)
     if not faq.items:
-        await message.answer(
-            "Пока здесь пусто. Напишите нам — ответим на любой вопрос.",
-            reply_markup=main_menu(),
+        await ui.reply(
+            event, text="Напишите нам — ответим на любой вопрос.", keyboard=back_to_menu()
         )
         return
-
     blocks = ["<b>❓ Частые вопросы</b>"]
-    for item in faq.items:
-        blocks.append(f"\n<b>{item.question}</b>\n{item.answer}")
-    await message.answer("\n".join(blocks), reply_markup=main_menu())
+    blocks.extend(f"\n<b>{item.question}</b>\n{item.answer}" for item in faq.items)
+    await ui.reply(event, text="\n".join(blocks), keyboard=back_to_menu())
+
+
+@router.callback_query(MenuCB.filter(F.section == "contacts"))
+async def contacts_button(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    await show_contacts(callback, session)
 
 
 @router.message(F.text == BTN_CONTACTS)
-async def show_contacts(message: Message, session: AsyncSession) -> None:
+async def show_contacts(event: Event, session: AsyncSession) -> None:
     contacts = await settings.get_contacts(session)
     lines = ["<b>📞 Связаться с нами</b>", ""]
-    if contacts.telegram:
-        lines.append(f"Telegram: {contacts.telegram}")
-    if contacts.phone:
-        lines.append(f"Телефон: {contacts.phone}")
-    if contacts.email:
-        lines.append(f"Почта: {contacts.email}")
-    if contacts.instagram:
-        lines.append(f"Instagram: {contacts.instagram}")
-    if contacts.tiktok:
-        lines.append(f"TikTok: {contacts.tiktok}")
+    for label, value in (
+        ("Telegram", contacts.telegram),
+        ("Телефон", contacts.phone),
+        ("Почта", contacts.email),
+        ("Instagram", contacts.instagram),
+        ("TikTok", contacts.tiktok),
+    ):
+        if value:
+            lines.append(f"{label}: {value}")
     if len(lines) == 2:
-        lines.append("Напишите нам в личные сообщения — ответим и поможем.")
-
-    await message.answer("\n".join(lines), reply_markup=main_menu())
+        lines.append("Напишите нам в личные сообщения.")
+    await ui.reply(event, text="\n".join(lines), keyboard=back_to_menu())

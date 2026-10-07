@@ -1,0 +1,67 @@
+{% extends "admin/base.html" %}
+{% from "admin/_ui.html" import icon, load_card %}
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Привет, {{ admin.username }}</h1>
+    <div class="sub">{{ today | ru_weekday }}, {{ today | ru_day_month }}</div>
+  </div>
+</div>
+
+{# Входы в разделы: на телефоне в нижнем меню только главная, статистика и настройки. #}
+<section class="home-grid">
+  <a class="home-tile hero" href="/admin/board">
+    <span class="home-top"><span class="home-icon">{{ icon('orders') }}</span><span class="home-go">{{ icon('arrow') }}</span></span>
+    <span class="home-title">Заказы</span>
+    <span class="home-value" data-count>{{ metrics.queued }}</span>
+    <span class="home-note">в очереди · сегодня собрать {{ metrics.ready_today }} · к отправке {{ metrics.ready_to_ship }}</span>
+  </a>
+  {% if admin.is_owner %}
+  <a class="home-tile" href="/admin/catalog">
+    <span class="home-top"><span class="home-icon">{{ icon('box') }}</span><span class="home-go">{{ icon('arrow') }}</span></span>
+    <span class="home-title">Товары</span>
+    <span class="home-value">{{ products_total }}</span>
+    <span class="home-note">в боте {{ products_live }}</span>
+  </a>
+  <a class="home-tile" href="/admin/customers">
+    <span class="home-top"><span class="home-icon">{{ icon('people') }}</span><span class="home-go">{{ icon('arrow') }}</span></span>
+    <span class="home-title">Клиенты</span>
+    <span class="home-value">{{ customers.buyers }}</span>
+    <span class="home-note">+{{ customers.new_30d }} за 30 дней</span>
+  </a>
+  <a class="home-tile blush" href="/admin/reviews">
+    <span class="home-top"><span class="home-icon">{{ icon('star') }}</span><span class="home-go">{{ icon('arrow') }}</span></span>
+    <span class="home-title">Отзывы</span>
+    <span class="home-value">{{ new_reviews or 0 }}</span>
+    <span class="home-note">{{ 'новых, ждут публикации' if new_reviews else 'новых нет' }}</span>
+  </a>
+  {% endif %}
+</section>
+
+{{ load_card(plan) }}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Собрать сегодня</h2>
+    <span class="muted">{{ today_cards | length }}</span>
+  </div>
+  {% if today_cards %}
+    <div class="list-rows">
+      {% for card in today_cards %}
+        {% set order = card.order %}
+        <a class="list-row today-row" href="/admin/orders/{{ order.id }}">
+          <span>
+            <b>{{ order.recipient_name or order.customer.display_name }}</b>
+            <span class="muted small">{{ order.admin_label }} · {{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}{% if order.video_box_count %} · видео {{ order.video_box_count }}{% endif %}</span>
+          </span>
+          <span class="status {{ order.status.value }}">{{ order.status.value | order_status }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty" style="padding:24px 16px"><b>На сегодня всё собрано</b>Новые заказы появятся на доске.</div>
+  {% endif %}
+</section>
+{% endblock %}

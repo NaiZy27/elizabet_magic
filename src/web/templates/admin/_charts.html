@@ -1,0 +1,104 @@
+{# Графики панели. Геометрию считает web/charts.py, здесь только разметка SVG. #}
+
+{# Столбики. values — числа, labels — подписи под осью, titles — всплывающие подсказки.
+   money=True — подписи шкалы в рублях (значения в копейках). #}
+{% macro bar_chart(values, labels, titles, height=120, money=False) -%}
+{% set top = nice_ceiling(values | max if values else 0) %}
+{% set bars = chart_bars(values, height=height, top=top) %}
+{% set step = ((labels | length) / 8) | round(0, 'ceil') | int or 1 %}
+<div class="bar-chart">
+  <div class="bar-axis">
+    <span>{{ (top | short_rubles) if money else (top | round(1) | string | replace('.0', '')) }}</span>
+    <span>{{ ((top / 2) | short_rubles) if money else ((top / 2) | round(1) | string | replace('.0', '')) }}</span>
+    <span>0</span>
+  </div>
+  <div class="bar-plot">
+    <svg class="chart" viewBox="0 0 100 {{ height }}" preserveAspectRatio="none" style="height: {{ height }}px" role="img">
+      <line class="grid" x1="0" x2="100" y1="0.5" y2="0.5" vector-effect="non-scaling-stroke"/>
+      <line class="grid" x1="0" x2="100" y1="{{ height / 2 }}" y2="{{ height / 2 }}" vector-effect="non-scaling-stroke"/>
+      <line class="grid base" x1="0" x2="100" y1="{{ height - 0.5 }}" y2="{{ height - 0.5 }}" vector-effect="non-scaling-stroke"/>
+      {% for bar in bars %}
+        <g class="bar {{ 'dim' if not bar.value }} {{ 'peak' if bar.is_max }}">
+          <rect class="hit" x="{{ bar.x - 0.5 }}" width="{{ bar.w + 1 }}" y="0" height="{{ height }}"><title>{{ titles[loop.index0] }}</title></rect>
+          <rect class="fill" x="{{ bar.x }}" width="{{ bar.w }}"
+                y="{{ bar.y if bar.value else height - 2 }}" height="{{ bar.h if bar.value else 2 }}"
+                rx="0.6" style="animation-delay: {{ loop.index0 * 18 }}ms"><title>{{ titles[loop.index0] }}</title></rect>
+        </g>
+      {% endfor %}
+    </svg>
+    <div class="bar-labels">
+      {% for label in labels %}<span>{{ label if loop.index0 % step == 0 else '' }}</span>{% endfor %}
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
+{# Кольцо с легендой. parts — [(подпись, число)]. При наведении дуга утолщается,
+   остальные гаснут, в центре — доля выбранной части (ui.js). #}
+{% macro donut(parts, center_value, center_label) -%}
+{% set segments = chart_donut(parts) %}
+<div class="donut-wrap" data-donut>
+  <div class="donut">
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="track" cx="50" cy="50" r="42"/>
+      {% for seg in segments if seg.value > 0 %}
+        <circle data-seg="{{ loop.index0 }}" cx="50" cy="50" r="42" stroke="{{ seg.color }}" stroke-dasharray="{{ seg.dash }}"
+                stroke-dashoffset="{{ seg.offset }}" style="animation-delay: {{ loop.index0 * 120 }}ms"><title>{{ seg.label }}: {{ seg.value | int }}</title></circle>
+      {% endfor %}
+    </svg>
+    <div class="center"><b>{{ center_value }}</b><span>{{ center_label }}</span></div>
+  </div>
+  <ul class="legend">
+    {% for seg in segments if seg.value > 0 %}
+      <li data-seg="{{ loop.index0 }}" data-percent="{{ seg.percent }}" data-label="{{ seg.label }}" data-value="{{ seg.value | int }}">
+        <i style="background: {{ seg.color }}"></i><span title="{{ seg.label }}">{{ seg.label }}</span><b>{{ seg.percent }}%</b>
+      </li>
+    {% else %}
+      <li class="muted">Данных пока нет</li>
+    {% endfor %}
+  </ul>
+</div>
+{%- endmacro %}
+
+{# Воронка: ступени сужаются по числу людей, при наведении ступень увеличивается.
+   steps — [(подпись, число)]. #}
+{% macro funnel(steps) -%}
+{% set first = steps[0][1] if steps else 0 %}
+{% set top = steps | map(attribute=1) | max if steps else 0 %}
+{% set widths = [] %}
+{% for label, value in steps %}{% set _ = widths.append([pct(value, top), 30] | max if top else 30) %}{% endfor %}
+<div class="funnel-v">
+  {% for label, value in steps %}
+    {% set w = widths[loop.index0] %}
+    {% set next = widths[loop.index0 + 1] if not loop.last else w * 0.82 %}
+    {% set inset = ((w - next) / 2 / w * 100) | round(2) %}
+    <div class="fv-stage" style="--w: {{ w }}%; --inset: {{ inset }}%; --c1: {{ ['#ff8cc0', '#ec5f9f', '#b8326e'][loop.index0 % 3] }}; --c2: {{ ['#ec5f9f', '#c93d80', '#8f1f55'][loop.index0 % 3] }}; animation-delay: {{ loop.index0 * 120 }}ms">
+      <div class="fv-shape"></div>
+      <div class="fv-text">
+        <b>{{ value }}</b>
+        <span>{{ label }}</span>
+        {% if not loop.first and first %}<em>{{ pct(value, first) }}%</em>{% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{# Изменение к прошлому периоду: «↗ +12%». #}
+{% macro delta_badge(current, previous) -%}
+{% if previous %}
+  {% set d = ((current - previous) * 100 / previous) | round | int %}
+  <span class="delta {{ 'up' if d > 0 else ('down' if d < 0 else 'flat') }}" title="к прошлому периоду">{{ '↗ +' if d > 0 else ('↘ ' if d < 0 else '→ ') }}{{ d }}%</span>
+{% endif %}
+{%- endmacro %}
+
+{# Линия тренда для плитки. #}
+{% macro spark(values) -%}
+{% set path = sparkline(values, width=200, height=48) %}
+{% if path.line %}
+<svg class="spark" viewBox="0 0 200 48" preserveAspectRatio="none" aria-hidden="true">
+  <path d="{{ path.area }}" fill="#ffffff22"/>
+  <path d="{{ path.line }}" fill="none" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+</svg>
+{% endif %}
+{%- endmacro %}

@@ -9,6 +9,7 @@ import pytest
 from core.enums import OrderStatus
 from core.errors import ValidationError
 from core.workdays import (
+    DailyCapacity,
     QueueEntry,
     WorkingCalendar,
     compute_ready_dates,
@@ -109,3 +110,67 @@ def test_is_late_compares_with_promise(monday):
     assert is_late(dt.date(2026, 9, 23), monday) is True
     assert is_late(monday, monday) is False
     assert is_late(monday, None) is False
+
+
+# --- дневной лимит: 2 бокса с видео или 4 без видео ---
+
+
+def boxes(order_id: int, position: int, *, video: int = 0, plain: int = 0) -> QueueEntry:
+    return QueueEntry(
+        order_id=order_id,
+        production_days=1,
+        status=OrderStatus.QUEUED,
+        queue_position=position,
+        video_boxes=video,
+        plain_boxes=plain,
+    )
+
+
+def test_two_video_boxes_fill_the_day(monday):
+    calendar = WorkingCalendar(capacity=DailyCapacity(video_per_day=2, plain_per_day=4))
+
+    dates = compute_ready_dates(
+        [boxes(1, 1, video=1), boxes(2, 2, video=1), boxes(3, 3, video=1)],
+        calendar=calendar,
+        today=monday,
+    )
+
+    assert dates[1] == monday
+    assert dates[2] == monday
+    assert dates[3] == dt.date(2026, 9, 22)  # третье видео — уже вторник
+
+
+def test_four_plain_boxes_fit_one_day(monday):
+    calendar = WorkingCalendar(capacity=DailyCapacity())
+
+    dates = compute_ready_dates(
+        [boxes(1, 1, plain=3), boxes(2, 2, plain=1), boxes(3, 3, plain=1)],
+        calendar=calendar,
+        today=monday,
+    )
+
+    assert dates[1] == monday
+    assert dates[2] == monday
+    assert dates[3] == dt.date(2026, 9, 22)
+
+
+def test_video_and_plain_share_the_day(monday):
+    calendar = WorkingCalendar(capacity=DailyCapacity())
+
+    dates = compute_ready_dates(
+        [boxes(1, 1, video=1, plain=2), boxes(2, 2, plain=1)],
+        calendar=calendar,
+        today=monday,
+    )
+
+    assert dates[1] == monday  # 1 с видео + 2 без — ровно день
+    assert dates[2] == dt.date(2026, 9, 22)
+
+
+def test_big_order_spans_days_and_skips_weekend():
+    friday = dt.date(2026, 9, 25)
+    calendar = WorkingCalendar(capacity=DailyCapacity())
+
+    dates = compute_ready_dates([boxes(1, 1, video=3)], calendar=calendar, today=friday)
+
+    assert dates[1] == dt.date(2026, 9, 28)  # два видео в пятницу, третье — в понедельник

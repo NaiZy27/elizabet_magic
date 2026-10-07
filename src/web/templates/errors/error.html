@@ -6,15 +6,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>{{ title }} — Elizabet Magic</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=5">
 </head>
 <body>
 <div class="login-page">
   <div class="card login-card" style="text-align:center">
     <div class="eyebrow">Ошибка {{ code }}</div>
-    <h1 style="font-family: Georgia, serif; margin-top:0">{{ title }}</h1>
+    <h1 style="margin-bottom:8px">{{ title }}</h1>
     <p class="muted">{{ message }}</p>
-    <a class="button" href="/admin/board">На доску заказов</a>
+    <div class="actions" style="justify-content:center">
+      <a class="button" href="javascript:history.back()">Назад</a>
+      <a class="button ghost" href="/admin/board">К заказам</a>
+    </div>
   </div>
 </div>
 </body>
