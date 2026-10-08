@@ -27,6 +27,7 @@ from web.routes.admin import router as admin_router
 from web.security import NotAuthenticated, login_redirect
 from web.templating import STATIC_DIR, render
 from worker.broker import ensure_started, shutdown
+from worker.telegram import close_bot
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await shutdown()
         await close_redis()
+        # Панель шлёт фото и отзывы через клиентского бота — закрываем его HTTP-сессию.
+        await close_bot()
         await dispose_engine()
 
 

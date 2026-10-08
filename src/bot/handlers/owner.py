@@ -325,3 +325,21 @@ async def client_menu_is_closed(message: Message) -> None:
 async def client_menu_button_is_closed(callback: CallbackQuery) -> None:
     await callback.answer()
     await ui.reply(callback, text=CLOSED_TEXT, keyboard=kb.owner_menu())
+
+
+@router.callback_query()
+async def client_button_is_closed(callback: CallbackQuery) -> None:
+    """Любая другая клиентская кнопка — например, из старого сообщения времён тестов.
+
+    Клиентским обработчикам нужна карточка покупателя, а у рабочего аккаунта её нет:
+    без этой заглушки нажатие падало бы с ошибкой. Снимаем кнопки и объясняем.
+    """
+    await callback.answer(CLOSED_TEXT, show_alert=True)
+    if isinstance(callback.message, Message):
+        # У rich-сообщения кнопки — часть текста: снять их можно, только переписав текст.
+        await ui.strip_buttons(
+            callback.bot,
+            callback.message.chat.id,
+            callback.message.message_id,
+            body=ui.message_body(callback.message),
+        )

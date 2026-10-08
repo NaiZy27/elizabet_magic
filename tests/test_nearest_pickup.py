@@ -55,6 +55,8 @@ def run(session: FakeSession, *, limit: int = 5, radii=(2.0, 5.0, 15.0)):
             environment=ProviderEnvironment.PRODUCTION,
             limit=limit,
             radii_km=radii,
+            # Службы явно: иначе поиск сначала спросит у базы список включённых.
+            providers=[DeliveryProviderCode.CDEK],
         ),
     )
 
@@ -103,3 +105,19 @@ def test_distance_reported_matches_haversine():
 
 def test_empty_directory_returns_nothing():
     assert run(FakeSession([])) == []
+
+
+def test_no_enabled_providers_means_no_points():
+    """Если в панели не включена ни одна служба, пунктов клиенту не показываем."""
+    session = FakeSession([make_point(55.754, 37.621)])
+    found = asyncio.run(
+        search_nearest(
+            session,
+            latitude=HOME[0],
+            longitude=HOME[1],
+            environment=ProviderEnvironment.PRODUCTION,
+            providers=[],
+        ),
+    )
+    assert found == []
+    assert session.queries == 0

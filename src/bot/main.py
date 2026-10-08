@@ -16,7 +16,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
 from bot.handlers import build_router
-from bot.middlewares import ContextMiddleware
+from bot.middlewares import ContextMiddleware, SerialPerUserMiddleware
 from core.config import get_settings, warn_about_stub_payments
 from core.db import dispose_engine
 from worker.broker import ensure_started, shutdown
@@ -34,6 +34,11 @@ def create_dispatcher() -> Dispatcher:
     # FSM в Redis: клиент продолжит оформление даже после перезапуска бота.
     storage = RedisStorage.from_url(settings.redis_fsm_url)
     dispatcher = Dispatcher(storage=storage)
+
+    # Внешняя: апдейты одного пользователя по очереди — до фильтров и до сессии базы.
+    serial = SerialPerUserMiddleware()
+    dispatcher.message.outer_middleware(serial)
+    dispatcher.callback_query.outer_middleware(serial)
 
     context = ContextMiddleware()
     dispatcher.message.middleware(context)

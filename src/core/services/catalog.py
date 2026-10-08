@@ -14,9 +14,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.clock import now_utc
 from core.enums import VIDEO_ADDON_CODE, AddonChargeMode
 from core.errors import NotFoundError, ValidationError
-from core.clock import now_utc
 from core.models import Addon, Color, OrderAddon, OrderItem, Product, ProductVariant
 from core.text import spoons_phrase
 
@@ -248,7 +248,9 @@ async def delete_variant(session: AsyncSession, variant: ProductVariant) -> bool
 async def delete_product(session: AsyncSession, product: Product) -> bool:
     """Удалить бокс вместе с вариантами. True — удалён совсем, False — ушёл в архив."""
     variants = list(
-        await session.scalars(select(ProductVariant).where(ProductVariant.product_id == product.id)),
+        await session.scalars(
+            select(ProductVariant).where(ProductVariant.product_id == product.id)
+        ),
     )
     if await _variant_in_orders(session, [variant.id for variant in variants]):
         for variant in variants:

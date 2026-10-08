@@ -161,12 +161,29 @@ async def payment_page(request: Request, token: str, session: DbSession):
     if payment.status == PaymentStatus.PAID:
         return RedirectResponse(f"/pay/{token}/success", status_code=status.HTTP_303_SEE_OTHER)
 
+    if payment.status != PaymentStatus.PENDING and order.status == OrderStatus.WAITING_PAYMENT:
+        # Эту попытку заменили новой (сменился способ оплаты) — ведём к актуальной.
+        current = await payments_service.get_pending_payment(session, order.id)
+        if current is not None:
+            return RedirectResponse(
+                f"/pay/{current.public_token}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
     if payment.status != PaymentStatus.PENDING or order.status != OrderStatus.WAITING_PAYMENT:
         return render(
             request,
             "pay/error.html",
             {"message": "Этот счёт больше не действует. Откройте заказ в боте."},
             status_code=status.HTTP_410_GONE,
+        )
+
+    if payment.provider != payments_service.current_provider():
+        # Способ оплаты сменили после выставления счёта — выставляем новый.
+        payment = await payments_service.create_payment(session, order)
+        return RedirectResponse(
+            f"/pay/{payment.public_token}",
+            status_code=status.HTTP_303_SEE_OTHER,
         )
 
     return render(
@@ -189,7 +206,9 @@ async def confirm_stub_payment(request: Request, token: str, session: DbSession)
     статус меняет исключительно её уведомление с проверенной подписью.
     """
     payment = await payments_service.get_by_token(session, token)
-    if payment.provider != PaymentProvider.STUB:
+    # Режим проверяем отдельно: после перехода на Робокассу у старых неоплаченных
+    # заказов остаются попытки-заглушки, и по их ссылкам нельзя «оплатить» кнопкой.
+    if payment.provider != PaymentProvider.STUB or get_settings().payments_are_real:
         return render(
             request,
             "pay/error.html",

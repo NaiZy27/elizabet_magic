@@ -240,6 +240,12 @@ def warn_about_stub_payments(logger: logging.Logger) -> None:
     """Сказать в лог, что деньги не списываются. Вызывается при старте каждого процесса."""
     settings = get_settings()
     if settings.payments_are_real:
+        if settings.environment == "production" and settings.robokassa.is_test:
+            logger.warning(
+                "ROBOKASSA_IS_TEST=true в боевом окружении: оплаты идут в тестовом режиме, "
+                "деньги на счёт не поступают, а заказы при этом считаются оплаченными. "
+                "Для приёма денег поставьте ROBOKASSA_IS_TEST=false.",
+            )
         return
     logger.warning(
         "PAYMENTS_MODE=stub: оплата работает заглушкой, деньги не списываются. "

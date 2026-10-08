@@ -103,6 +103,19 @@ async def enabled_providers(session: AsyncSession) -> list[DeliveryProvider]:
     return list(result)
 
 
+async def enabled_codes(session: AsyncSession) -> list[DeliveryProviderCode]:
+    """Коды включённых служб. Пункты остальных клиенту не показываем и не принимаем."""
+    return [provider.code for provider in await enabled_providers(session)]
+
+
+async def _visible_providers(
+    session: AsyncSession,
+    providers: Sequence[DeliveryProviderCode] | None,
+) -> list[DeliveryProviderCode]:
+    """Какие службы искать: явно заданные или все включённые в панели."""
+    return list(providers) if providers is not None else await enabled_codes(session)
+
+
 async def fixed_price_kopecks(session: AsyncSession) -> int | None:
     """Единая цена доставки, если у всех включённых служб она одинаковая.
 
@@ -152,7 +165,8 @@ async def search_by_text(
     увидит хотя бы пункты в своём городе.
     """
     words = search_words(query)
-    if not words:
+    providers = await _visible_providers(session, providers)
+    if not words or not providers:
         return TextSearchResult(points=[], exact=True)
 
     points = await _search_words(session, words, environment, limit, offset, providers)
@@ -182,8 +196,7 @@ async def _search_words(
         .offset(offset)
         .limit(limit)
     )
-    if providers:
-        statement = statement.where(PickupPoint.provider.in_(tuple(providers)))
+    statement = statement.where(PickupPoint.provider.in_(tuple(providers or ())))
     result = await session.scalars(statement)
     return list(result)
 
@@ -210,6 +223,9 @@ async def search_nearest(
     дальше любого из них. Если нет — расширяем радиус. После последнего радиуса
     берём ближайшие из всего справочника, чтобы клиент не остался без вариантов.
     """
+    providers = await _visible_providers(session, providers)
+    if not providers:
+        return []
     for radius_km in radii_km:
         found = await _nearest_within(
             session,
@@ -255,8 +271,7 @@ async def _nearest_within(
                 PickupPoint.longitude.between(longitude - lon_delta, longitude + lon_delta),
             )
         statement = statement.where(distance <= radius_km)
-    if providers:
-        statement = statement.where(PickupPoint.provider.in_(tuple(providers)))
+    statement = statement.where(PickupPoint.provider.in_(tuple(providers or ())))
     statement = statement.order_by(distance).limit(limit)
 
     with_distance = [

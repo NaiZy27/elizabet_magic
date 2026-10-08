@@ -119,6 +119,13 @@ def verify_csrf(request: Request, submitted: str | None) -> None:
         )
 
 
+#: Сессия базы на запрос. scope="function": транзакция коммитится, когда обработчик
+#: закончил, но ДО отправки ответа. С обычной зависимостью FastAPI отправляет ответ
+#: раньше, чем выполнит код после yield, и ошибка коммита терялась бы: Робокасса
+#: получила бы «OK» на неоплаченный в базе платёж, а форма — «сохранено» без записи.
+DbSession = Annotated[AsyncSession, Depends(get_db_session, scope="function")]
+
+
 class RequireLogin:
     """Зависимость: пускает только с открытой сессией и нужной ролью.
 
@@ -134,7 +141,7 @@ class RequireLogin:
     async def __call__(
         self,
         request: Request,
-        session: Annotated[AsyncSession, Depends(get_db_session)],
+        session: DbSession,
     ) -> AdminUser:
         user_id = request.session.get(SESSION_USER_ID)
         user = None
@@ -189,4 +196,3 @@ require_owner = RequireLogin(owner_only=True)
 CurrentAdmin = Annotated[AdminUser, Depends(require_login)]
 CurrentAdminApi = Annotated[AdminUser, Depends(require_login_api)]
 CurrentOwner = Annotated[AdminUser, Depends(require_owner)]
-DbSession = Annotated[AsyncSession, Depends(get_db_session)]
