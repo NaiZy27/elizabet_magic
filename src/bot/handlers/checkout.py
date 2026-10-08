@@ -12,13 +12,14 @@
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot import ui
+from bot import rich, ui
 from bot.callbacks import (
     CartCB,
     ConfirmCB,
@@ -411,7 +412,7 @@ async def show_comment_step(
     texts = await settings.get_bot_texts(session)
     data = await state.get_data()
     current = data.get(COMMENT)
-    hint = f"\n\nСейчас: «{truncate(current, 300)}»" if current else ""
+    hint = f"\n\nСейчас: «{escape(truncate(current, 300))}»" if current else ""
     back_step = "video" if await catalog.get_video_addon(session) is not None else "spoons"
     await state.set_state(Checkout.comment)
     await ui.clear_photo(event, state)
@@ -555,7 +556,7 @@ def describe_boxes(order: Order) -> str:
             if part
         )
         if wishes:
-            lines.append(f"   ✍️ {truncate(wishes, 120)}")
+            lines.append(f"   ✍️ {escape(truncate(wishes, 120))}")
         blocks.append("\n".join(lines))
     blocks.extend(
         f"{addon.name_snapshot} — {format_rubles(addon.total_kopecks)}"
@@ -672,6 +673,8 @@ async def show_pickup_search_step(
     event: Message | CallbackQuery,
     state: FSMContext,
     session: AsyncSession,
+    *,
+    note: str | None = None,
 ) -> None:
     await state.set_state(Checkout.pickup)
     await state.update_data({PICKUP_OFFSET: 0, PICKUP_QUERY: None})
@@ -685,6 +688,7 @@ async def show_pickup_search_step(
             f"{await _delivery_terms(session)}",
         ),
         keyboard=kb.pickup_search(),
+        note=note,
     )
     # Геопозицию Telegram отдаёт только кнопкой под полем ввода — инлайн её не запросить.
     await ui.show_helper(event, state, text="👇", keyboard=request_location())
@@ -736,7 +740,10 @@ async def receive_city(
         return
     query = (message.text or "").strip()
     if len(query) < 2:
-        await message.answer("Напишите город или улицу целиком.")
+        await ui.consume(message, state)
+        await show_pickup_search_step(
+            message, state, session, note="Напишите город или улицу целиком."
+        )
         return
 
     await state.update_data(
@@ -900,7 +907,9 @@ async def _recipient_step(
             text=ui.compose(
                 None,
                 "Получатель — всё верно?",
-                f"👤 {order.recipient_name}\n📱 {order.recipient_phone}\n✉️ {order.recipient_email}",
+                f"👤 {escape(order.recipient_name)}\n"
+                f"📱 {escape(order.recipient_phone)}\n"
+                f"✉️ {escape(order.recipient_email)}",
             ),
             keyboard=kb.confirm_prefilled("recipient", keep="✅ Всё верно", change="✏️ Изменить"),
         )
@@ -930,11 +939,13 @@ async def show_recipient_name_step(
     event: Message | CallbackQuery,
     state: FSMContext,
     order: Order,
+    *,
+    note: str | None = None,
 ) -> None:
     await state.set_state(Checkout.recipient_name)
     current = order.recipient_name or ""
-    hint = f"Сейчас: <b>{current}</b>" if current else ""
-    await ui.show(event, state, text=ui.compose(None, "Имя получателя", hint))
+    hint = f"Сейчас: <b>{escape(current)}</b>" if current else ""
+    await ui.show(event, state, text=ui.compose(None, "Имя получателя", hint), note=note)
 
 
 @router.message(Checkout.recipient_name, F.text, NOT_MENU)
@@ -944,23 +955,37 @@ async def receive_name(
     session: AsyncSession,
     customer: Customer,
 ) -> None:
-    if await _draft(message, state, session, customer) is None:
+    order = await _draft(message, state, session, customer)
+    if order is None:
         return
     name = (message.text or "").strip()
     if len(name) < 2:
-        await message.answer("Напишите имя полностью.")
+        await ui.consume(message, state)
+        await show_recipient_name_step(message, state, order, note="Напишите имя полностью.")
         return
 
     await state.update_data({RECIPIENT_NAME: name})
     await state.set_state(Checkout.recipient_phone)
     await ui.consume(message, state)
+    await show_phone_step(message, state)
+
+
+async def show_phone_step(
+    event: Message | CallbackQuery,
+    state: FSMContext,
+    *,
+    note: str | None = None,
+) -> None:
+    await state.set_state(Checkout.recipient_phone)
     await ui.show(
-        message,
+        event,
         state,
         text=ui.compose(None, "Телефон получателя", f"Нажмите «{BTN_SEND_PHONE}» внизу."),
+        note=note,
     )
-    # Контакт Telegram отдаёт только кнопкой под полем ввода — инлайн её не запросить.
-    await ui.show_helper(message, state, text="👇", keyboard=request_phone())
+    # Контакт Telegram отдаёт только кнопкой под полем ввода — внутрь сообщения её не поставить.
+    if (await state.get_data()).get(HELPER_MESSAGE_ID) is None:
+        await ui.show_helper(event, state, text="👇", keyboard=request_phone())
 
 
 @router.message(Checkout.recipient_phone, F.contact)
@@ -983,7 +1008,8 @@ async def receive_phone_text(
     phone = (message.text or "").strip()
     digits = "".join(character for character in phone if character.isdigit())
     if len(digits) < 10:
-        await message.answer("Номер неполный. Пример: +7 900 123-45-67")
+        await ui.consume(message, state)
+        await show_phone_step(message, state, note="Номер неполный. Пример: +7 900 123-45-67")
         return
     await _save_phone(message, state, session, customer, phone=phone)
 
@@ -1009,15 +1035,18 @@ async def show_email_step(
     event: Message | CallbackQuery,
     state: FSMContext,
     order: Order,
+    *,
+    note: str | None = None,
 ) -> None:
     current = order.recipient_email if orders.is_valid_email(order.recipient_email) else None
-    hint = f"Сейчас: <b>{current}</b>" if current else ""
+    hint = f"Сейчас: <b>{escape(current)}</b>" if current else ""
     await state.set_state(Checkout.recipient_email)
     await ui.show(
         event,
         state,
         text=ui.compose(None, "Email для чека", hint),
         keyboard=kb.email_step(has_current=current is not None),
+        note=note,
     )
 
 
@@ -1030,7 +1059,13 @@ async def receive_email(
 ) -> None:
     email = (message.text or "").strip()
     if not orders.is_valid_email(email):
-        await message.answer("Похоже на опечатку. Пример: anna@mail.ru")
+        order = await _draft(message, state, session, customer)
+        if order is None:
+            return
+        await ui.consume(message, state)
+        await show_email_step(
+            message, state, order, note="Похоже на опечатку. Пример: anna@mail.ru"
+        )
         return
     await ui.consume(message, state)
     await _save_recipient(message, state, session, customer, email=email)
@@ -1121,8 +1156,8 @@ def summary_text(order: Order, spot: board.QueueSpot | None = None) -> str:
         f"<b>Итого: {format_rubles(order.total_kopecks)}</b>",
         "",
         f"{provider_icon(snapshot.get('provider'))} {snapshot.get('address', '')}",
-        f"👤 {order.recipient_name}, {order.recipient_phone}",
-        f"✉️ {order.recipient_email}",
+        f"👤 {escape(order.recipient_name or '')}, {escape(order.recipient_phone or '')}",
+        f"✉️ {escape(order.recipient_email or '')}",
     ]
     if spot is not None:
         lines.extend(
@@ -1168,20 +1203,25 @@ async def pay(
         # поэтому показываем ссылку текстом (бывает при локальной разработке).
         text = f"{text}\n\nСсылка на оплату:\n<code>{url}</code>"
         url = ""
-    message_id = await ui.show(callback, state, text=text, keyboard=kb.payment(url, order.id))
-    bot, chat_id = ui.target(callback)
+    message_id = await ui.show(
+        callback,
+        state,
+        text=text,
+        keyboard=kb.payment(url, order.id),
+        note="После оплаты пришлём номер заказа и чек 💗",
+    )
+    _, chat_id = ui.target(callback)
     if message_id is not None and chat_id is not None:
         # Кнопки «Оплатить» и «Отменить» снимутся сами, когда заказ оплатят или отменят,
         # а под текстом появится итог — поэтому запоминаем и текст.
-        orders.remember_bot_message(order, chat_id=chat_id, message_id=message_id, text=text)
-    await state.clear()
-    if bot is not None and chat_id is not None:
-        # Оформление закончено — возвращаем главное меню, спрятанное на время заказа.
-        await bot.send_message(
+        orders.remember_bot_message(
+            order,
             chat_id=chat_id,
-            text="После оплаты пришлём номер заказа и чек 💗",
-            reply_markup=main_menu(),
+            message_id=message_id,
+            text=text,
+            rich_body=rich.text_html(text),
         )
+    await state.clear()
 
 
 # --- навигация и отмена ---
@@ -1323,5 +1363,5 @@ async def _draft(
         await ui.reply(event, text=STALE_TEXT, keyboard=main_menu())
     else:
         await _reset(event, state)
-        await event.answer(STALE_TEXT, reply_markup=main_menu())
+        await ui.reply(event, text=STALE_TEXT, keyboard=main_menu())
     return None

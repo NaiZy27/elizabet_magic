@@ -703,10 +703,13 @@ def remember_bot_message(
     chat_id: int,
     message_id: int,
     text: str | None = None,
+    rich_body: str | None = None,
 ) -> None:
     """Запомнить сообщение с кнопками по заказу, чтобы потом их снять.
 
     Если передан текст, при снятии кнопок под ним допишется итог: «✅ Оплачено».
+    `rich_body` — текст rich-сообщения без кнопок: кнопки в нём часть текста,
+    и снять их можно, только переписав сообщение этим текстом.
     """
     known = {(entry["chat_id"], entry["message_id"]) for entry in order.bot_messages}
     if (chat_id, message_id) in known:
@@ -714,6 +717,8 @@ def remember_bot_message(
     entry: dict[str, int | str] = {"chat_id": chat_id, "message_id": message_id}
     if text:
         entry["text"] = text
+    if rich_body:
+        entry["rich_body"] = rich_body
     # Новый список, а не append: иначе SQLAlchemy не заметит изменения JSONB.
     order.bot_messages = [*order.bot_messages, entry]
 

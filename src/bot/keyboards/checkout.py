@@ -54,15 +54,20 @@ def products(items: Sequence[tuple[Product, int]], *, back_to_cart: bool) -> Inl
     return builder.as_markup()
 
 
+def _mark(text: str, chosen: bool) -> str:
+    """Выбранный вариант — зелёный и с галочкой, как переключатель."""
+    return f"[✓] {text}" if chosen else text
+
+
 def spoons(options: Sequence[tuple[int, int]], *, chosen: int | None) -> InlineKeyboardMarkup:
     """Количество ложечек с ценой: пары (сколько ложечек, цена в копейках)."""
     builder = InlineKeyboardBuilder()
     for count, price in options:
         builder.row(
             button(
-                f"{spoons_phrase(count)} — {format_rubles(price)}",
+                _mark(f"{spoons_phrase(count)} — {format_rubles(price)}", count == chosen),
                 SpoonCB(count=count).pack(),
-                style=PRIMARY if count == chosen else None,
+                style=SUCCESS if count == chosen else None,
             ),
         )
     builder.row(back_button("product"))
@@ -74,16 +79,16 @@ def video(price_kopecks: int, *, chosen: bool | None = None) -> InlineKeyboardMa
     builder = InlineKeyboardBuilder()
     builder.row(
         button(
-            f"🎥 С видео +{format_rubles(price_kopecks)}",
+            _mark(f"🎥 С видео +{format_rubles(price_kopecks)}", chosen is True),
             VideoCB(enabled=True).pack(),
-            style=PRIMARY if chosen is True else None,
+            style=SUCCESS if chosen is True else None,
         ),
     )
     builder.row(
         button(
-            "Без видео",
+            _mark("Без видео", chosen is False),
             VideoCB(enabled=False).pack(),
-            style=PRIMARY if chosen is False else None,
+            style=SUCCESS if chosen is False else None,
         ),
     )
     builder.row(back_button("spoons"))

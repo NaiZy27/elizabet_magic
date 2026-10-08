@@ -46,9 +46,10 @@ async def start_with_payload(
 ) -> None:
     """Возврат из оплаты: t.me/бот?start=paid_<токен>."""
     if (command.args or "").startswith("paid_"):
-        await message.answer(
-            "Спасибо! Как только оплата подтвердится, пришлём номер заказа 💗",
-            reply_markup=main_menu(),
+        await ui.reply(
+            message,
+            text="Спасибо! Как только оплата подтвердится, пришлём номер заказа 💗",
+            keyboard=main_menu(),
         )
         return
     await start(message, state, session)
@@ -61,7 +62,7 @@ async def start(message: Message, state: FSMContext, session: AsyncSession) -> N
     # Убираем клавиатуру под полем ввода, если она осталась от прошлой версии бота.
     await ui.hide_reply_keyboard(message)
     texts = await settings.get_bot_texts(session)
-    await message.answer(texts.greeting, reply_markup=main_menu())
+    await ui.reply(message, text=texts.greeting, keyboard=main_menu())
 
 
 @router.callback_query(MenuCB.filter(F.section == "home"))
@@ -124,7 +125,7 @@ async def show_prices(event: Event, session: AsyncSession) -> None:
 def _order_or_back():
     builder = InlineKeyboardBuilder()
     builder.row(menu_button("🛍 Заказать бокс", "order", style="primary"))
-    builder.row(menu_button("← Меню", "home"))
+    builder.row(menu_button("← Меню", "home", style="link"))
     return builder.as_markup()
 
 
@@ -151,7 +152,7 @@ async def show_delivery(event: Event, session: AsyncSession) -> None:
 
     builder = InlineKeyboardBuilder()
     builder.row(menu_button("📍 Ближайшие пункты", "nearest"))
-    builder.row(menu_button("← Меню", "home"))
+    builder.row(menu_button("← Меню", "home", style="link"))
     await ui.reply(event, text="\n".join(lines), keyboard=builder.as_markup())
 
 

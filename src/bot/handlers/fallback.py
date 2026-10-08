@@ -18,13 +18,10 @@ router = Router(name="fallback")
 @router.callback_query()
 async def stale_button(callback: CallbackQuery) -> None:
     """Кнопка из старого сообщения: снимаем кнопки и отвечаем, чтобы не крутился индикатор."""
-    await callback.answer("Это сообщение устарело. Откройте меню и начните заново.")
-    await ui.mark_choice(callback.message, "⌛ Сообщение устарело")
+    await callback.answer("Это сообщение устарело — откройте меню заново.")
+    await ui.reply(callback, text="Главное меню", keyboard=main_menu())
 
 
 @router.message(F.text)
 async def unknown_text(message: Message) -> None:
-    await message.answer(
-        "Не понял вас. Выберите пункт меню ниже — или напишите нам, если нужен живой человек 💗",
-        reply_markup=main_menu(),
-    )
+    await ui.reply(message, text="Не понял вас. Выберите пункт меню 💗", keyboard=main_menu())
