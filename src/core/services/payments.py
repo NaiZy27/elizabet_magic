@@ -101,17 +101,19 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
     if order.total_kopecks <= 0:
         raise ValidationError("Сумма заказа должна быть больше нуля")
 
+    provider = current_provider()
     existing = await get_pending_payment(session, order.id)
     if existing is not None:
-        if existing.amount_kopecks == order.total_kopecks:
+        if existing.amount_kopecks == order.total_kopecks and existing.provider == provider:
             return existing
-        # Заказ изменился после создания ссылки — старая попытка больше не годится.
+        # Заказ изменился после создания ссылки или сменился способ оплаты (заглушку
+        # заменили Робокассой) — старая попытка больше не годится.
         existing.status = PaymentStatus.CANCELLED
         await session.flush()
 
     payment = Payment(
         order_id=order.id,
-        provider=current_provider(),
+        provider=provider,
         environment=current_environment(),
         public_token=uuid.uuid4(),
         amount_kopecks=order.total_kopecks,
@@ -167,19 +169,25 @@ async def confirm_payment(
     Повторный вызов с тем же платежом ничего не меняет и не шлёт второе уведомление.
     Оплата по отменённому заказу не отклоняется — см. `_accept_late_payment`.
     """
-    # Блокируем строку: два одновременных уведомления не должны оплатить заказ дважды.
+    order_id = await session.scalar(select(Payment.order_id).where(Payment.id == payment_id))
+    if order_id is None:
+        raise NotFoundError("Платёж не найден")
+
+    # Блокируем сначала заказ, потом платёж — в том же порядке, что и отмена заказа.
+    # Так оплата не разминётся с автоотменой по сроку, а два одновременных уведомления
+    # не оплатят заказ дважды.
+    order = await orders_service.get_order(session, order_id)
+    await orders_service.lock(session, order)
     payment = await session.scalar(
         select(Payment).where(Payment.id == payment_id).with_for_update(),
     )
-    if payment is None:
-        raise NotFoundError("Платёж не найден")
+    await session.refresh(payment)
 
     if payment.status in {PaymentStatus.PAID, PaymentStatus.REFUNDED}:
         return payment
     if amount_kopecks is not None and amount_kopecks != payment.amount_kopecks:
         raise ValidationError("Оплаченная сумма не совпадает с суммой заказа")
 
-    order = await orders_service.get_order(session, payment.order_id)
     if payment.status != PaymentStatus.PENDING:
         return await _accept_late_payment(
             session,
@@ -322,6 +330,8 @@ async def refund_order(
     Когда подключим Робокассу, на месте `_refund_with_provider` будет вызов её API
     возврата — он же аннулирует чек в «Мой налог».
     """
+    # Порядок блокировок как везде: заказ, потом платёж.
+    await orders_service.lock(session, order)
     payment = await session.scalar(
         select(Payment)
         .where(Payment.order_id == order.id, Payment.status == PaymentStatus.PAID)

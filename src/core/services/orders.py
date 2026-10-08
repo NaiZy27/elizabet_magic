@@ -382,8 +382,9 @@ async def _requote_delivery(
         order.delivery_kopecks = 0
     else:
         point = await session.get(PickupPoint, order.pickup_point_id)
-        if point is None or not point.is_active:
-            # Пункт пропал из справочника — пусть клиент выберет другой.
+        if point is None or not await is_point_available(session, point):
+            # Пункт пропал из справочника или его службу выключили — пусть клиент
+            # выберет другой: заказ в выключенную службу оформлять нельзя.
             order.pickup_point_id = None
             order.pickup_snapshot = None
             order.delivery_provider = None
@@ -406,6 +407,8 @@ async def _apply_pickup_point(session: AsyncSession, order: Order, point: Pickup
     Справочник ПВЗ обновляется каждую ночь, поэтому в заказе остаётся снимок:
     адрес и режим работы такими, какими их видел клиент.
     """
+    if not await is_point_available(session, point):
+        raise ValidationError("Этот пункт выдачи сейчас недоступен — выберите другой")
     provider = await delivery.get_provider(session, point.provider)
     order.pickup_point_id = point.id
     order.delivery_provider = point.provider
@@ -429,17 +432,21 @@ async def _apply_pickup_point(session: AsyncSession, order: Order, point: Pickup
         )
 
 
+async def is_point_available(session: AsyncSession, point: PickupPoint) -> bool:
+    """Можно ли везти в этот пункт: он работает, из нашего контура, и служба включена."""
+    if not point.is_active or point.environment != get_settings().delivery_environment:
+        return False
+    return point.provider in await delivery.enabled_codes(session)
+
+
 async def _last_pickup_point(session: AsyncSession, customer: Customer) -> PickupPoint | None:
     """Пункт из прошлого заказа, если он ещё работает и служба включена."""
     if customer.last_pickup_point_id is None:
         return None
     point = await session.get(PickupPoint, customer.last_pickup_point_id)
-    if point is None or not point.is_active:
+    if point is None or not await is_point_available(session, point):
         return None
-    if point.environment != get_settings().delivery_environment:
-        return None
-    enabled = {provider.code for provider in await delivery.enabled_providers(session)}
-    return point if point.provider in enabled else None
+    return point
 
 
 def _find_item(order: Order, item_id: int) -> OrderItem:
@@ -616,6 +623,30 @@ async def change_status(
     return order
 
 
+async def lock(session: AsyncSession, order: Order) -> Order:
+    """Заблокировать строку заказа до конца транзакции и перечитать его состояние.
+
+    Оплата, отмена клиентом и автоотмена по сроку могут прийти одновременно. Без
+    блокировки каждая видит «ожидает оплаты» и пишет своё: оплаченный заказ мог бы
+    оказаться отменённым. Порядок блокировок везде один — сначала заказ, потом платёж, —
+    чтобы транзакции не ждали друг друга по кругу.
+    """
+    await session.execute(select(Order.id).where(Order.id == order.id).with_for_update())
+    await session.refresh(
+        order,
+        attribute_names=[
+            "status",
+            "paid_at",
+            "expires_at",
+            "queue_position",
+            "cancel_reason",
+            "cancelled_at",
+            "number",
+        ],
+    )
+    return order
+
+
 async def cancel(
     session: AsyncSession,
     order: Order,
@@ -624,10 +655,19 @@ async def cancel(
     actor: str = ACTOR_SYSTEM,
     comment: str | None = None,
     template_key: MessageTemplateKey | None = None,
+    only_unpaid: bool = False,
 ) -> Order:
-    """Отменить заказ и закрыть неоплаченную попытку оплаты."""
+    """Отменить заказ и закрыть неоплаченную попытку оплаты.
+
+    `only_unpaid` — для отмены клиентом и по сроку: если заказ успели оплатить,
+    пока шла отмена, отменять его нельзя.
+    """
     # Локальный импорт: payments тоже обращается к заказам.
     from core.services import payments
+
+    await lock(session, order)
+    if only_unpaid and (order.status != OrderStatus.WAITING_PAYMENT or order.paid_at is not None):
+        raise ConflictError("Заказ уже оплачен — отменить его можно только через возврат")
 
     await payments.cancel_pending(session, order.id)
     order.cancel_reason = reason
@@ -666,18 +706,25 @@ async def expire_unpaid(session: AsyncSession, *, now: dt.datetime | None = None
             Order.status == OrderStatus.WAITING_PAYMENT,
             Order.expires_at.is_not(None),
             Order.expires_at < moment,
-        ),
-    )
-    expired = list(result)
-    for order in expired:
-        await cancel(
-            session,
-            order,
-            reason=CancelReason.EXPIRED,
-            actor=ACTOR_SYSTEM,
-            comment="истёк срок оплаты",
         )
+        # Заказ, который прямо сейчас проводит оплата, пропускаем: вернёмся через 5 минут.
+        .with_for_update(of=Order, skip_locked=True),
+    )
+    expired: list[Order] = []
+    for order in result:
+        try:
+            await cancel(
+                session,
+                order,
+                reason=CancelReason.EXPIRED,
+                actor=ACTOR_SYSTEM,
+                comment="истёк срок оплаты",
+                only_unpaid=True,
+            )
+        except ConflictError:
+            continue
         await log_event(session, order, OrderEventType.EXPIRED, actor=ACTOR_SYSTEM)
+        expired.append(order)
     return expired
 
 

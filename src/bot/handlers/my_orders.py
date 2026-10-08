@@ -176,13 +176,23 @@ async def cancel_order(
         await _strip(callback)
         return
 
-    await orders.cancel(
-        session,
-        order,
-        reason=CancelReason.CUSTOMER,
-        actor=orders.ACTOR_BOT,
-        comment="отменён клиентом",
-    )
+    try:
+        await orders.cancel(
+            session,
+            order,
+            reason=CancelReason.CUSTOMER,
+            actor=orders.ACTOR_BOT,
+            comment="отменён клиентом",
+            only_unpaid=True,
+        )
+    except DomainError:
+        # Оплата успела пройти, пока клиент нажимал «Отменить».
+        await callback.answer(
+            "Оплата уже прошла — заказ в работе. Если передумали, напишите нам.",
+            show_alert=True,
+        )
+        await _strip(callback)
+        return
     await callback.answer("Заказ отменён")
     await ui.mark_choice(callback.message, "✖️ Заказ отменён")
 
