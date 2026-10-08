@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from bot import ui
+from bot import rich, ui
 from bot.callbacks import MenuCB, OrderCB, ReviewCB
 from bot.keyboards.common import BTN_MY_ORDERS, DANGER, PRIMARY, SUCCESS, menu_button
 from core.clock import format_date, format_datetime
@@ -66,7 +66,7 @@ async def list_orders(
     if not found:
         builder = InlineKeyboardBuilder()
         builder.row(menu_button("🛍 Заказать бокс", "order", style=PRIMARY))
-        builder.row(menu_button("← Меню", "home"))
+        builder.row(menu_button("← Меню", "home", style="link"))
         await ui.reply(event, text="Заказов пока нет 💗", keyboard=builder.as_markup())
         return
 
@@ -77,7 +77,7 @@ async def list_orders(
             callback_data=OrderCB(order_id=order.id, action="open").pack(),
         )
     builder.adjust(1)
-    builder.row(menu_button("← Меню", "home"))
+    builder.row(menu_button("← Меню", "home", style="link"))
     await ui.reply(event, text="<b>📦 Ваши заказы</b>", keyboard=builder.as_markup())
 
 
@@ -116,6 +116,7 @@ async def open_order(
             chat_id=callback.message.chat.id,
             message_id=callback.message.message_id,
             text=text,
+            rich_body=rich.text_html(text),
         )
 
 
@@ -142,13 +143,14 @@ async def pay_order(
     await callback.answer()
     url = payments.payment_url(payment)
     text, keyboard = _payment_link(order, url)
-    if callback.message is not None:
-        sent = await callback.message.answer(text, reply_markup=keyboard)
+    sent = await ui.reply(callback, text=text, keyboard=keyboard)
+    if sent is not None:
         orders.remember_bot_message(
             order,
             chat_id=sent.chat.id,
             message_id=sent.message_id,
             text=text,
+            rich_body=rich.text_html(text),
         )
 
 
@@ -188,7 +190,12 @@ async def cancel_order(
 async def _strip(callback: CallbackQuery) -> None:
     """Снять кнопки с сообщения, по которому нажали: по ним больше нечего делать."""
     if callback.message is not None:
-        await ui.strip_buttons(callback.bot, callback.message.chat.id, callback.message.message_id)
+        await ui.strip_buttons(
+            callback.bot,
+            callback.message.chat.id,
+            callback.message.message_id,
+            body=ui.message_body(callback.message),
+        )
 
 
 def _payment_link(order: Order, url: str) -> tuple[str, InlineKeyboardMarkup | None]:
@@ -275,7 +282,9 @@ async def _order_keyboard(session: AsyncSession, order: Order) -> InlineKeyboard
             callback_data=ReviewCB(action="new", order_id=order.id).pack(),
         )
     if order.status != OrderStatus.WAITING_PAYMENT:
-        builder.button(text="← Мои заказы", callback_data=MenuCB(section="orders").pack())
+        builder.button(
+            text="← Мои заказы", callback_data=MenuCB(section="orders").pack(), style="link"
+        )
         builder.adjust(1)
         return builder.as_markup()
 

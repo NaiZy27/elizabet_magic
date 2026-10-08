@@ -47,7 +47,7 @@ async def nearest_points(message: Message, state: FSMContext, session: AsyncSess
         limit=NEAREST_COUNT,
     )
     if not found:
-        await message.answer("Рядом пунктов выдачи не нашли.", reply_markup=main_menu())
+        await ui.reply(message, text="Рядом пунктов выдачи не нашли.", keyboard=main_menu())
         return
 
     lines = ["<b>📍 Ближайшие пункты</b>", ""]
@@ -59,7 +59,7 @@ async def nearest_points(message: Message, state: FSMContext, session: AsyncSess
         if point.working_hours:
             lines.append(f"   🕒 {truncate(point.working_hours, 80)}")
 
-    await message.answer("\n".join(lines), reply_markup=_points_keyboard(found))
+    await ui.reply(message, text="\n".join(lines), keyboard=_points_keyboard(found))
 
 
 @router.callback_query(NearestPointCB.filter())
@@ -92,7 +92,7 @@ def _points_keyboard(found: list[tuple[PickupPoint, float]]) -> InlineKeyboardMa
         )
     builder.adjust(1)
     builder.row(menu_button("🛍 Заказать бокс", "order", style="primary"))
-    builder.row(menu_button("← Меню", "home"))
+    builder.row(menu_button("← Меню", "home", style="link"))
     return builder.as_markup()
 
 

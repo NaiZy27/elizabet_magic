@@ -45,11 +45,13 @@ async def ask_review(
     await state.set_state(ReviewForm.waiting)
     await state.update_data({REVIEW_ORDER_ID: order_id})
     builder = InlineKeyboardBuilder()
-    builder.button(text="Отмена", callback_data=ReviewCB(action="cancel").pack())
-    if callback.message is not None:
-        await callback.message.answer(
-            "💌 Напишите отзыв одним сообщением — можно с фото.",
-            reply_markup=builder.as_markup(),
+    builder.button(text="Отмена", callback_data=ReviewCB(action="cancel").pack(), style="link")
+    if callback.message is not None and callback.bot is not None:
+        await ui.send(
+            callback.bot,
+            callback.message.chat.id,
+            text="💌 Напишите отзыв одним сообщением — можно с фото.",
+            keyboard=builder.as_markup(),
         )
 
 
@@ -80,7 +82,7 @@ async def receive_review(
         await message.answer(error.message)
         return
     await state.clear()
-    await message.answer("Спасибо за отзыв 💗", reply_markup=main_menu())
+    await ui.reply(message, text="Спасибо за отзыв 💗", keyboard=main_menu())
     await _notify_owner(
         message.bot,
         review.id,
@@ -105,10 +107,11 @@ async def _notify_owner(bot: Bot | None, review_id: int, *, text: str, has_photo
     )
     builder.row(button("⭐ Все отзывы", ReviewAdminCB(action="page", index=0).pack()))
     try:
-        await bot.send_message(
-            chat_id=chat_id,
+        await ui.send(
+            bot,
+            chat_id,
             text=f"💌 <b>Новый отзыв</b>\n\n{body}{photo}",
-            reply_markup=builder.as_markup(),
+            keyboard=builder.as_markup(),
         )
     except (TelegramBadRequest, TelegramForbiddenError) as error:
         logger.warning("Не удалось сообщить владелице об отзыве: %s", error)

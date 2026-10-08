@@ -33,7 +33,11 @@ def owner_menu() -> InlineKeyboardMarkup:
 
 
 def to_owner_menu() -> InlineKeyboardButton:
-    return InlineKeyboardButton(text="← Меню", callback_data=MenuCB(section="o_home").pack())
+    return InlineKeyboardButton(
+        text="← Меню",
+        callback_data=MenuCB(section="o_home").pack(),
+        style="link",
+    )
 
 
 def review_browser(

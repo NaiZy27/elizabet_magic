@@ -60,9 +60,14 @@ def main_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+#: Второстепенные кнопки («Назад», «Меню») — ссылкой без рамки. Только в rich-сообщениях:
+#: для обычной клавиатуры стиль сбрасывается (см. bot.rich.classic_keyboard).
+LINK = "link"
+
+
 def back_to_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(menu_button("← Меню", "home"))
+    builder.row(menu_button("← Меню", "home", style=LINK))
     return builder.as_markup()
 
 
@@ -91,7 +96,7 @@ def remove_keyboard() -> ReplyKeyboardRemove:
 
 
 def back_button(step: str) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text="← Назад", callback_data=StepCB(step=step).pack())
+    return InlineKeyboardButton(text="← Назад", callback_data=StepCB(step=step).pack(), style=LINK)
 
 
 def skip_button(step: str, text: str = "Пропустить") -> InlineKeyboardButton:

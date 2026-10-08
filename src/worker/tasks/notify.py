@@ -17,8 +17,9 @@ from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramRetryAfter,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage
 
+from bot import rich
 from core.clock import format_date, now_utc
 from core.config import get_settings
 from core.db import session_scope
@@ -190,7 +191,14 @@ async def strip_order_buttons(order_id: int) -> None:
         chat_id, message_id = int(entry["chat_id"]), int(entry["message_id"])
         text = entry.get("text")
         try:
-            if text and footer:
+            if entry.get("rich_body"):
+                html = entry["rich_body"] + (rich.text_html(footer) if footer else "")
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    rich_message=InputRichMessage(html=html, skip_entity_detection=True),
+                )
+            elif text and footer:
                 await bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
@@ -251,6 +259,15 @@ async def _send(
 ) -> None:
     """Отправить сообщение, один раз переждав ограничение частоты."""
     bot = get_bot()
+    if reply_markup is not None:
+        # Сообщение с кнопкой — rich: кнопка внутри сообщения, как во всём боте.
+        try:
+            await bot.send_rich_message(
+                chat_id=chat_id, rich_message=rich.build(text, reply_markup)
+            )
+            return
+        except TelegramBadRequest:
+            logger.exception("Rich-уведомление не принято — отправляем обычное")
     try:
         await bot.send_message(
             chat_id=chat_id,

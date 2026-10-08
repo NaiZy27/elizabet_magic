@@ -46,7 +46,7 @@ GREETING = "Рабочий режим 💗\nСюда приходят новые
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
     await ui.hide_reply_keyboard(message)
-    await message.answer(GREETING, reply_markup=kb.owner_menu())
+    await ui.reply(message, text=GREETING, keyboard=kb.owner_menu())
 
 
 @router.callback_query(MenuCB.filter(F.section == "o_home"))
@@ -192,9 +192,11 @@ async def show_panel(message: Message) -> None:
     keyboard = kb.panel_link(url)
     if keyboard is None:
         # Локальный адрес: Telegram такую ссылку в кнопке не примет.
-        await message.answer(f"Панель заказов:\n<code>{url}</code>", reply_markup=kb.owner_menu())
+        await ui.reply(
+            message, text=f"Панель заказов:\n<code>{url}</code>", keyboard=kb.owner_menu()
+        )
         return
-    await message.answer("Панель заказов:", reply_markup=keyboard)
+    await ui.reply(message, text="Панель заказов:", keyboard=keyboard)
 
 
 # --- фото боксов ---
@@ -228,9 +230,10 @@ async def back_to_list(
     await callback.answer()
     products = await catalog.list_products_for_admin(session)
     if callback.message is not None:
-        await callback.message.edit_text(
-            "Для какого бокса фото?\n🖼 — есть, ▫️ — нет.",
-            reply_markup=kb.products(products),
+        await ui.reply(
+            callback,
+            text="Для какого бокса фото?\n🖼 — есть, ▫️ — нет.",
+            keyboard=kb.products(products),
         )
 
 
@@ -249,9 +252,10 @@ async def pick_product(
     if callback.message is None:
         return
     current = "Сейчас фото есть — пришлите новое, чтобы заменить." if product.photo_file_id else ""
-    await callback.message.edit_text(
-        f"<b>{product.name}</b>\n\nПришлите фотографию сообщением.\n{current}".strip(),
-        reply_markup=kb.photo_actions(product.id, has_photo=bool(product.photo_file_id)),
+    await ui.reply(
+        callback,
+        text=f"<b>{product.name}</b>\n\nПришлите фотографию сообщением.\n{current}".strip(),
+        keyboard=kb.photo_actions(product.id, has_photo=bool(product.photo_file_id)),
     )
     if product.photo_file_id:
         await callback.message.answer_photo(product.photo_file_id, caption="Текущее фото")
@@ -263,7 +267,7 @@ async def receive_photo(message: Message, state: FSMContext, session: AsyncSessi
     data = await state.get_data()
     product_id = data.get(PHOTO_PRODUCT_ID)
     if product_id is None:
-        await message.answer("Сначала выберите бокс.", reply_markup=kb.owner_menu())
+        await ui.reply(message, text="Сначала выберите бокс.", keyboard=kb.owner_menu())
         return
 
     product = await catalog.get_product(session, product_id)
@@ -271,9 +275,10 @@ async def receive_photo(message: Message, state: FSMContext, session: AsyncSessi
     product.photo_file_id = message.photo[-1].file_id
     await session.flush()
     await state.clear()
-    await message.answer(
-        f"Готово: фото для «{product.name}» обновлено. Клиенты увидят его при выборе бокса.",
-        reply_markup=kb.owner_menu(),
+    await ui.reply(
+        message,
+        text=f"Готово: фото для «{product.name}» обновлено.",
+        keyboard=kb.owner_menu(),
     )
 
 
@@ -298,9 +303,10 @@ async def clear_photo(
     await state.clear()
     await callback.answer("Фото убрано")
     if callback.message is not None:
-        await callback.message.edit_text(
-            f"<b>{product.name}</b>\n\nФото убрано — бот покажет бокс без картинки.",
-            reply_markup=kb.photo_actions(product.id, has_photo=False),
+        await ui.reply(
+            callback,
+            text=f"<b>{product.name}</b>\n\nФото убрано — бот покажет бокс без картинки.",
+            keyboard=kb.photo_actions(product.id, has_photo=False),
         )
 
 
@@ -312,7 +318,7 @@ CLOSED_TEXT = "Это рабочий аккаунт: заказы оформля
 
 @router.message(F.text.in_(MENU_BUTTONS))
 async def client_menu_is_closed(message: Message) -> None:
-    await message.answer(CLOSED_TEXT, reply_markup=kb.owner_menu())
+    await ui.reply(message, text=CLOSED_TEXT, keyboard=kb.owner_menu())
 
 
 @router.callback_query(MenuCB.filter())

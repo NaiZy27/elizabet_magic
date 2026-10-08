@@ -1,13 +1,14 @@
 """Отрисовка сценария в одном сообщении.
 
 Клиент проходит оформление, а бот всё это время правит одно и то же сообщение,
-а не засыпает чат лентой. Вспомогательные сообщения (фото бокса, карта пункта
-выдачи, подсказка к кнопке геопозиции) живут по одному: новое заменяет старое.
+а не засыпает чат лентой. Сообщения — rich (Bot API 10.3): кнопки стоят внутри
+самого сообщения, между абзацами, а не клавиатурой под ним. Вспомогательные
+сообщения (фото бокса, кнопка геопозиции или телефона под полем ввода) живут
+по одному: новое заменяет старое.
 
-Кнопки со старых сообщений снимаются редактированием: удалять сообщения Telegram
-разрешает только 48 часов, а менять — без срока. Если выбор сделан, под текстом
-остаётся строка-итог («✅ Согласие получено»), чтобы по переписке было видно,
-что клиент выбрал.
+Кнопки со старых сообщений снимаются редактированием: в rich-сообщении кнопки —
+часть текста, поэтому сообщение переписывается целиком без них. Для этого рядом
+с id сообщения хранится его текст без кнопок (UI_TEXT, уже в rich-HTML).
 """
 
 from __future__ import annotations
@@ -21,12 +22,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
+    InputRichMessage,
     Message,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     TelegramObject,
 )
 
+from bot import rich
 from bot.states import (
     BOX_STEPS,
     HELPER_MESSAGE_ID,
@@ -40,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def box_header(box_number: int, step: int) -> str:
-    """«Бокс 2 · шаг 3 из 6»."""
+    """«Бокс 2 · шаг 3 из 4»."""
     return f"Бокс {box_number} · шаг {step} из {BOX_STEPS}"
 
 
@@ -50,14 +53,69 @@ def compose(header: str | None, title: str, body: str = "") -> str:
     return f"{top}\n\n{body}".strip()
 
 
+def _not_modified(error: TelegramBadRequest) -> bool:
+    return "message is not modified" in str(error)
+
+
+async def _edit_rich(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    rich_message: InputRichMessage,
+) -> bool:
+    """Переписать сообщение rich-содержимым. False — Telegram не дал (удалено, старое)."""
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            rich_message=rich_message,
+        )
+        return True
+    except TelegramBadRequest as error:
+        if _not_modified(error):
+            return True
+        logger.debug("Не получилось переписать сообщение %s: %s", message_id, error)
+        return False
+
+
+async def send(
+    bot: Bot,
+    chat_id: int,
+    *,
+    text: str,
+    keyboard: InlineKeyboardMarkup | None = None,
+    note: str | None = None,
+) -> Message:
+    """Отправить сообщение с кнопками внутри. Не принял rich — обычное с клавиатурой."""
+    try:
+        return await bot.send_rich_message(
+            chat_id=chat_id,
+            rich_message=rich.build(text, keyboard, note=note),
+        )
+    except TelegramBadRequest:
+        logger.exception("Telegram не принял rich-сообщение — отправляем обычное")
+    full_text = f"{text}\n\n{note}" if note else text
+    try:
+        return await bot.send_message(
+            chat_id=chat_id,
+            text=full_text,
+            reply_markup=rich.classic_keyboard(keyboard),
+            disable_web_page_preview=True,
+        )
+    except TelegramBadRequest:
+        logger.exception("Шаг отправлен без кнопок: Telegram отклонил клавиатуру")
+        return await bot.send_message(chat_id=chat_id, text=full_text)
+
+
 async def show(
     event: TelegramObject,
     state: FSMContext,
     *,
     text: str,
     keyboard: InlineKeyboardMarkup | None = None,
+    note: str | None = None,
 ) -> int | None:
-    """Показать шаг: отредактировать сообщение сценария или создать его заново.
+    """Показать шаг: переписать сообщение сценария или создать его заново.
 
     Возвращает id сообщения, в котором показан шаг.
     """
@@ -65,52 +123,43 @@ async def show(
     if bot is None or chat_id is None:
         return None
 
+    body = rich.text_html(text)
     data = await state.get_data()
     message_id = data.get(UI_MESSAGE_ID)
-
     if message_id is not None:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                reply_markup=keyboard,
-            )
-            await state.update_data({UI_TEXT: text})
+        if await _edit_rich(bot, chat_id, message_id, rich.build(text, keyboard, note=note)):
+            await state.update_data({UI_TEXT: body})
             return message_id
-        except TelegramBadRequest as error:
-            if "message is not modified" in str(error):
-                await state.update_data({UI_TEXT: text})
-                return message_id
-            # Сообщение удалили или его нельзя править — отправим новое,
-            # а у старого на всякий случай снимем кнопки.
-            logger.debug("Не получилось отредактировать сообщение сценария: %s", error)
-            await strip_buttons(bot, chat_id, message_id)
+        # Сообщение удалили или оно обычное, старого образца, — шлём новое,
+        # а со старого снимаем кнопки.
+        await strip_buttons(bot, chat_id, message_id, body=data.get(UI_TEXT))
 
-    try:
-        sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
-    except TelegramBadRequest:
-        # Телеграм не принял клавиатуру (например, ссылку на локальный адрес в кнопке).
-        # Показать шаг важнее кнопок: отправляем без них, а причину пишем в лог.
-        logger.exception("Шаг отправлен без кнопок: Telegram отклонил клавиатуру")
-        sent = await bot.send_message(chat_id=chat_id, text=text)
-    await state.update_data({UI_MESSAGE_ID: sent.message_id, UI_TEXT: text})
+    sent = await send(bot, chat_id, text=text, keyboard=keyboard, note=note)
+    await state.update_data({UI_MESSAGE_ID: sent.message_id, UI_TEXT: body})
     return sent.message_id
+
+
+def message_body(message: Message) -> str | None:
+    """Текст сообщения без кнопок в rich-HTML — чтобы потом переписать его без кнопок."""
+    if message.rich_message is not None:
+        return rich.body_html(message.rich_message)
+    if message.text is not None:
+        return rich.text_html(message.html_text)
+    return None
 
 
 async def adopt(event: TelegramObject, state: FSMContext) -> None:
     """Сделать сообщение, по кнопке которого нажали, сообщением сценария.
 
     Так «Заказать бокс» из меню продолжает оформление в том же сообщении, а не
-    присылает новое. Фото и прочие сообщения без текста не подходят — их не перепишешь.
+    присылает новое. Фото и прочие сообщения без текста не подходят.
     """
     if not isinstance(event, CallbackQuery) or not isinstance(event.message, Message):
         return
-    if event.message.text is None:
+    body = message_body(event.message)
+    if body is None:
         return
-    await state.update_data(
-        {UI_MESSAGE_ID: event.message.message_id, UI_TEXT: event.message.html_text},
-    )
+    await state.update_data({UI_MESSAGE_ID: event.message.message_id, UI_TEXT: body})
 
 
 async def reply(
@@ -118,31 +167,20 @@ async def reply(
     *,
     text: str,
     keyboard: InlineKeyboardMarkup | None = None,
-) -> None:
+    note: str | None = None,
+) -> Message | None:
     """Ответ вне сценария: по кнопке — переписать её сообщение, на текст — новым сообщением."""
     bot, chat_id = target(event)
     if bot is None or chat_id is None:
-        return
+        return None
     if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
-        if event.message.text is not None:
-            try:
-                await event.message.edit_text(
-                    text,
-                    reply_markup=keyboard,
-                    disable_web_page_preview=True,
-                )
-                return
-            except TelegramBadRequest as error:
-                if "message is not modified" in str(error):
-                    return
-                logger.debug("Не получилось переписать сообщение меню: %s", error)
-        await strip_buttons(bot, chat_id, event.message.message_id)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        reply_markup=keyboard,
-        disable_web_page_preview=True,
-    )
+        message = event.message
+        if await _edit_rich(
+            bot, chat_id, message.message_id, rich.build(text, keyboard, note=note)
+        ):
+            return message
+        await strip_buttons(bot, chat_id, message.message_id, body=message_body(message))
+    return await send(bot, chat_id, text=text, keyboard=keyboard, note=note)
 
 
 async def consume(message: Message, state: FSMContext) -> None:
@@ -169,33 +207,25 @@ async def retire(
     """Закончить с сообщением сценария: снять кнопки, дописать итог и забыть его.
 
     Следующий шаг создаст новое сообщение ниже, а по кнопкам старого уже ничего
-    не нажать. `footer` — что выбрал клиент: «📍 Пункт выдачи: …».
+    не нажать. `footer` — что выбрал клиент.
     """
     bot, chat_id = target(event)
     data = await state.get_data()
     message_id = data.get(UI_MESSAGE_ID)
     if bot is not None and chat_id is not None and message_id is not None:
-        text = data.get(UI_TEXT)
-        if footer and text:
-            await close_message(bot, chat_id, message_id, text=text, footer=footer)
-        else:
-            await strip_buttons(bot, chat_id, message_id)
+        await close_message(bot, chat_id, message_id, body=data.get(UI_TEXT), footer=footer)
     await state.update_data({UI_MESSAGE_ID: None, UI_TEXT: None})
 
 
 async def mark_choice(message: Message | None, footer: str) -> None:
-    """Дописать итог под сообщением, по кнопке которого нажали, и снять кнопки.
-
-    Для сообщений вне сценария (согласие, карточка заказа): их текст берётся
-    из самого сообщения.
-    """
+    """Дописать итог под сообщением, по кнопке которого нажали, и снять кнопки."""
     if message is None or message.bot is None:
         return
     await close_message(
         message.bot,
         message.chat.id,
         message.message_id,
-        text=message.html_text,
+        body=message_body(message),
         footer=footer,
     )
 
@@ -205,34 +235,35 @@ async def close_message(
     chat_id: int,
     message_id: int,
     *,
-    text: str,
-    footer: str,
+    body: str | None,
+    footer: str | None = None,
 ) -> None:
-    """Текст + строка-итог, без кнопок. Не вышло (удалено, слишком длинно) — просто снять кнопки."""
-    try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"{text}\n\n{footer}",
-            reply_markup=None,
-        )
-    except TelegramBadRequest as error:
-        logger.debug("Не получилось дописать итог к сообщению: %s", error)
-        await strip_buttons(bot, chat_id, message_id)
-
-
-async def strip_buttons(bot: Bot, chat_id: int, message_id: int) -> None:
-    # Кнопок уже нет или сообщение удалено — это нормально.
+    """Текст + строка-итог, без кнопок."""
+    if body:
+        html = body + (rich.text_html(footer) if footer else "")
+        rich_message = InputRichMessage(html=html, skip_entity_detection=True)
+        if await _edit_rich(bot, chat_id, message_id, rich_message):
+            return
+    # Текста нет или сообщение старого образца — хотя бы снимем клавиатуру под ним.
     with contextlib.suppress(TelegramBadRequest):
         await bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=None,
+            chat_id=chat_id, message_id=message_id, reply_markup=None
         )
+
+
+async def strip_buttons(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    *,
+    body: str | None = None,
+) -> None:
+    """Снять кнопки. У rich-сообщения для этого нужен его текст без кнопок (`body`)."""
+    await close_message(bot, chat_id, message_id, body=body)
 
 
 async def hide_reply_keyboard(event: TelegramObject) -> None:
-    """Убрать клавиатуру под полем ввода (меню, «Отправить телефон»), не оставляя следов.
+    """Убрать клавиатуру под полем ввода («Отправить телефон», старое меню), не оставляя следов.
 
     Telegram убирает её только сообщением с ReplyKeyboardRemove, поэтому отправляем
     служебное сообщение и сразу удаляем — клавиатура остаётся скрытой.
@@ -270,30 +301,7 @@ async def show_photo(
 async def clear_photo(event: TelegramObject, state: FSMContext) -> None:
     """Убрать фото предыдущего шага, чтобы чат не зарастал картинками."""
     await _delete_tracked(event, state, PHOTO_MESSAGE_ID)
-
-
-async def show_venue(
-    event: TelegramObject,
-    state: FSMContext,
-    *,
-    latitude: float,
-    longitude: float,
-    title: str,
-    address: str,
-) -> None:
-    """Пункт выдачи на карте. Одна карта на оформление: новая заменяет прошлую."""
-    bot, chat_id = target(event)
-    if bot is None or chat_id is None:
-        return
     await _delete_tracked(event, state, VENUE_MESSAGE_ID)
-    sent = await bot.send_venue(
-        chat_id=chat_id,
-        latitude=latitude,
-        longitude=longitude,
-        title=title,
-        address=address,
-    )
-    await state.update_data({VENUE_MESSAGE_ID: sent.message_id})
 
 
 async def show_helper(
@@ -303,7 +311,10 @@ async def show_helper(
     text: str,
     keyboard: ReplyKeyboardMarkup | ReplyKeyboardRemove,
 ) -> None:
-    """Сообщение с reply-клавиатурой (телефон, геопозиция). Тоже в одном экземпляре."""
+    """Сообщение с клавиатурой под полем ввода (телефон, геопозиция). Тоже в одном экземпляре.
+
+    Только эти две кнопки Telegram не умеет ставить внутрь сообщения.
+    """
     bot, chat_id = target(event)
     if bot is None or chat_id is None:
         return
