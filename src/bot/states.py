@@ -93,3 +93,9 @@ class ReviewForm(StatesGroup):
 
 #: К какому заказу отзыв.
 REVIEW_ORDER_ID = "review_order_id"
+
+
+class ContactForm(StatesGroup):
+    """Клиент пишет нам из «Связаться с нами»."""
+
+    waiting = State()
