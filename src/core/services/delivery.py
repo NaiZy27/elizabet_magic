@@ -325,6 +325,4 @@ async def quote(
 
 def fits(point: PickupPoint, parcel: Parcel) -> bool:
     """Примет ли пункт выдачи такую посылку."""
-    if point.max_weight_g is not None and parcel.weight_g > point.max_weight_g:
-        return False
-    return True
+    return point.max_weight_g is None or parcel.weight_g <= point.max_weight_g

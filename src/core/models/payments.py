@@ -12,7 +12,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
-    Text,
     UniqueConstraint,
     text,
 )
@@ -59,6 +58,12 @@ class Payment(IdMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=text("status = 'paid'"),
         ),
+        # Для сверки: неоплаченные попытки, по которым клиент уходил в кассу.
+        Index(
+            "ix_payments_reconcile",
+            "checkout_started_at",
+            postgresql_where=text("paid_at IS NULL AND checkout_started_at IS NOT NULL"),
+        ),
     )
 
     order_id: Mapped[int] = mapped_column(
@@ -94,10 +99,16 @@ class Payment(IdMixin, TimestampMixin, Base):
     #: Комиссия, если провайдер её сообщает.
     fee_kopecks: Mapped[int | None] = money(nullable=True, default=None)
     paid_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
-    refunded_at: Mapped[dt.datetime | None] = mapped_column(
+
+    #: Когда клиента впервые отправили в Робокассу. Сверка опрашивает только такие
+    #: попытки: по ссылке, которую не открывали, спрашивать Робокассу незачем.
+    checkout_started_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True),
         default=None,
     )
+    #: Ушёл ли в Робокассу состав чека. Если нет (сумма строк не сошлась с оплатой),
+    #: Робочеки чек не пробьют — его нужно оформить вручную.
+    receipt_sent: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     order: Mapped[Order] = relationship(back_populates="payments")
     receipt: Mapped[Receipt | None] = relationship(back_populates="payment", uselist=False)
@@ -110,8 +121,6 @@ class Receipt(IdMixin, TimestampMixin, Base):
     """Чек самозанятого по оплате.
 
     Хранится бессрочно: это подтверждение, что продажа передана в «Мой налог».
-    Возврат в НПД оформляется аннулированием чека, поэтому отдельной записи
-    «чек возврата» нет — у того же чека меняется статус.
     """
 
     __tablename__ = "receipts"
@@ -151,11 +160,6 @@ class Receipt(IdMixin, TimestampMixin, Base):
         DateTime(timezone=True),
         default=None,
     )
-    annulled_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        default=None,
-    )
-    annul_reason: Mapped[str | None] = mapped_column(Text, default=None)
     #: Ответ сервиса как есть — для разбора спорных случаев.
     raw: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
 

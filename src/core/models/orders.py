@@ -158,7 +158,6 @@ class Order(IdMixin, TimestampMixin, Base):
         default=None,
     )
     #: Деньги вернули клиенту. Такой заказ не входит в выручку.
-    refunded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     #: Сообщения бота с кнопками по этому заказу: [{"chat_id", "message_id", "text"?}].
     #: Когда заказ оплачен или отменён, кнопки у них снимаются, а под текстом

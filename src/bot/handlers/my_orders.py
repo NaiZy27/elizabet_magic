@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -102,7 +104,10 @@ async def open_order(
     )
     receipt = await session.scalar(
         select(Receipt)
-        .where(Receipt.order_id == order.id, Receipt.status == ReceiptStatus.REGISTERED)
+        .where(
+            Receipt.order_id == order.id,
+            Receipt.status.in_([ReceiptStatus.REGISTERED, ReceiptStatus.SENT]),
+        )
         .order_by(Receipt.created_at.desc())
         .limit(1),
     )
@@ -168,7 +173,10 @@ async def cancel_order(
         return
     if order.status != OrderStatus.WAITING_PAYMENT:
         await callback.answer(
-            "Оплаченный заказ отменяем вручную — напишите нам, пожалуйста."
+            (
+                "Оплаченный заказ отменяем вручную — напишите нам через "
+                "«📞 Связаться с нами», вернём деньги."
+            )
             if order.paid_at
             else "Этот заказ уже отменён.",
             show_alert=True,
@@ -188,7 +196,8 @@ async def cancel_order(
     except DomainError:
         # Оплата успела пройти, пока клиент нажимал «Отменить».
         await callback.answer(
-            "Оплата уже прошла — заказ в работе. Если передумали, напишите нам.",
+            "Оплата уже прошла — заказ в работе. Если передумали, напишите нам "
+            "через «📞 Связаться с нами».",
             show_alert=True,
         )
         await _strip(callback)
@@ -224,8 +233,6 @@ def _title(order: Order) -> str:
 
 
 def _status_label(order: Order) -> str:
-    if order.refunded_at is not None:
-        return "оплата возвращена"
     return order_status_label(order.status).lower()
 
 
@@ -263,6 +270,8 @@ def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None
         lines.append(f"Режим работы пункта: {order.pickup_snapshot['working_hours']}")
     if receipt is not None and receipt.url:
         lines.append(f'\n🧾 <a href="{receipt.url}">Чек об оплате</a>')
+    elif receipt is not None and receipt.status == ReceiptStatus.SENT and receipt.buyer_email:
+        lines.append(f"\n🧾 Чек отправлен на {html.escape(receipt.buyer_email)}")
     return "\n".join(lines)
 
 

@@ -667,7 +667,7 @@ async def cancel(
 
     await lock(session, order)
     if only_unpaid and (order.status != OrderStatus.WAITING_PAYMENT or order.paid_at is not None):
-        raise ConflictError("Заказ уже оплачен — отменить его можно только через возврат")
+        raise ConflictError("Заказ уже оплачен — отменить его так нельзя")
 
     await payments.cancel_pending(session, order.id)
     order.cancel_reason = reason

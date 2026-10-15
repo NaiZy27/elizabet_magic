@@ -65,9 +65,7 @@ async def show_home(request: Request, session: DbSession, admin: CurrentAdmin):
         calendar=calendar,
         keep_completed_hours=rules.keep_completed_on_board_hours,
     )
-    today_cards = [
-        card for column in columns for card in column.cards if card.ready_date == today
-    ]
+    today_cards = [card for column in columns for card in column.cards if card.ready_date == today]
     plan = await analytics.production_plan(session, calendar=calendar, days=14)
 
     context = {
@@ -83,7 +81,9 @@ async def show_home(request: Request, session: DbSession, admin: CurrentAdmin):
         context.update(
             products_total=len(products),
             products_live=sum(
-                1 for item in products if item.is_active and catalog_service.active_variants(item.variants)
+                1
+                for item in products
+                if item.is_active and catalog_service.active_variants(item.variants)
             ),
             customers=await analytics.customer_summary(session),
             new_reviews=await session.scalar(

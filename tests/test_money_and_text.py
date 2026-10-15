@@ -57,7 +57,14 @@ def test_amount_for_external_api():
 
 @pytest.mark.parametrize(
     ("count", "expected"),
-    [(1, "ложечка"), (2, "ложечки"), (4, "ложечки"), (5, "ложечек"), (11, "ложечек"), (21, "ложечка")],
+    [
+        (1, "ложечка"),
+        (2, "ложечки"),
+        (4, "ложечки"),
+        (5, "ложечек"),
+        (11, "ложечек"),
+        (21, "ложечка"),
+    ],
 )
 def test_pluralize(count, expected):
     assert pluralize(count, "ложечка", "ложечки", "ложечек") == expected

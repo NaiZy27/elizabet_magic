@@ -1,15 +1,18 @@
 """Чеки самозанятого.
 
 Как это устроено в НПД: продажа передаётся в «Мой налог», там формируется чек со
-ссылкой на печатную форму на lknpd.nalog.ru. При возврате чек не «сторнируется»,
-а аннулируется. Чек хранится у нас бессрочно — это подтверждение, что продажа
-передана в налоговую.
+ссылкой на печатную форму на lknpd.nalog.ru. Чек хранится у нас бессрочно — это
+подтверждение, что продажа передана в налоговую. Возвратов в системе нет: если
+деньги вернули, чек владелица аннулирует сама в «Мой налог».
 
 Кто регистрирует:
-- Робочеки СМЗ (Робокасса) — сами, после оплаты; их ответ сюда записывает
-  интеграция с Робокассой, когда она будет подключена;
-- владелица руками — вставляет ссылку на чек в карточке заказа;
-- заглушка оплаты — «регистрирует» тестовый чек без ссылки.
+- Робочеки СМЗ (Робокасса) — сами, после оплаты: состав чека уходит в кассу вместе
+  со ссылкой на оплату, Робочеки передают продажу в «Мой налог» и отправляют чек
+  клиенту на email. Ссылку на чек Робокасса по API не отдаёт, поэтому у нас такой
+  чек — «передан в Робочеки» (SENT); ссылку владелица может вставить из кабинета;
+- владелица руками — если состав чека в кассу не ушёл (сумма строк не сошлась
+  с оплатой) или оплата была без Робочеков; вставляет ссылку в карточке заказа;
+- заглушка оплаты и тестовый режим Робокассы — «регистрируют» тестовый чек без ссылки.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from core.enums import (
     MessageTemplateKey,
     OrderEventType,
     PaymentProvider,
+    ProviderEnvironment,
     ReceiptProvider,
     ReceiptStatus,
 )
@@ -72,19 +76,35 @@ async def create_for_payment(session: AsyncSession, payment: Payment, order: Ord
     if existing is not None:
         return existing
 
-    is_stub = payment.provider == PaymentProvider.STUB
+    # Заглушка и тестовый режим Робокассы: денег нет, Робочеки такую оплату не видят.
+    is_stub = (
+        payment.provider == PaymentProvider.STUB or payment.environment == ProviderEnvironment.TEST
+    )
+    by_robochecks = not is_stub and payment.receipt_sent
+    if is_stub:
+        provider = ReceiptProvider.STUB
+    else:
+        provider = ReceiptProvider.ROBOKASSA if by_robochecks else ReceiptProvider.MANUAL
     receipt = Receipt(
         order_id=order.id,
         payment_id=payment.id,
-        provider=ReceiptProvider.STUB if is_stub else ReceiptProvider.ROBOKASSA,
-        status=ReceiptStatus.PENDING,
+        provider=provider,
+        status=ReceiptStatus.SENT if by_robochecks else ReceiptStatus.PENDING,
         amount_kopecks=payment.amount_kopecks,
         buyer_email=order.recipient_email,
         items=receipt_lines(order),
     )
+    if by_robochecks:
+        receipt.registered_at = now_utc()
     session.add(receipt)
     await session.flush()
 
+    if not is_stub and not by_robochecks:
+        notifications.schedule_owner_text(
+            session,
+            f"🧾 По заказу {order.admin_label} чек не ушёл в Робочеки — пробейте его "
+            "в «Мой налог» вручную и вставьте ссылку в карточке заказа.",
+        )
     if is_stub:
         # Тестовая оплата: налоговую не трогаем, но проходим тот же путь, что и боевой чек.
         await register(
@@ -109,8 +129,6 @@ async def register(
     provider: ReceiptProvider | None = None,
 ) -> Receipt:
     """Чек зарегистрирован в «Мой налог». Клиенту уходит ссылка, если она есть."""
-    if receipt.status == ReceiptStatus.ANNULLED:
-        raise ConflictError("Чек уже аннулирован")
     if url is not None:
         url = url.strip()
         if NALOG_RECEIPT_HOST not in url:
@@ -178,6 +196,9 @@ async def register_manual(
         session.add(receipt)
         await session.flush()
 
+    # Ссылку на чек Робочеков владелица вставляет из их кабинета — чек от этого
+    # не становится «ручным».
+    provider = None if receipt.provider == ReceiptProvider.ROBOKASSA else ReceiptProvider.MANUAL
     return await register(
         session,
         receipt,
@@ -185,30 +206,5 @@ async def register_manual(
         external_id=external_id,
         url=url,
         actor=actor,
-        provider=ReceiptProvider.MANUAL,
+        provider=provider,
     )
-
-
-async def annul(
-    session: AsyncSession,
-    receipt: Receipt,
-    order: Order,
-    *,
-    reason: str,
-    actor: str,
-) -> Receipt:
-    """Аннулировать чек — так в НПД оформляется возврат."""
-    if receipt.status == ReceiptStatus.ANNULLED:
-        return receipt
-    receipt.status = ReceiptStatus.ANNULLED
-    receipt.annulled_at = now_utc()
-    receipt.annul_reason = reason
-    await session.flush()
-    await orders.log_event(
-        session,
-        order,
-        OrderEventType.RECEIPT_ANNULLED,
-        payload={"receipt_id": receipt.id, "reason": reason},
-        actor=actor,
-    )
-    return receipt

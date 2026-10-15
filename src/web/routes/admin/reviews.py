@@ -177,7 +177,9 @@ async def media(kind: str, object_id: int, session: DbSession, admin: CurrentAdm
             content = buffer.read() if buffer else b""
         except Exception as error:
             logger.warning("Не удалось получить фото %s/%s: %s", kind, object_id, error)
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Фото недоступно") from error
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Фото недоступно"
+            ) from error
         _PHOTO_CACHE[file_id] = content
         while len(_PHOTO_CACHE) > _PHOTO_CACHE_SIZE:
             _PHOTO_CACHE.popitem(last=False)

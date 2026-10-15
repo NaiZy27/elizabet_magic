@@ -1,7 +1,8 @@
 """Аналитика для панели: загрузка мастерской по дням, динамика продаж, воронка бота.
 
 Только чтение. Деньги и заказы считаются так же, как в core.services.stats:
-по оплаченным заказам без возвратов, день — по московскому времени оплаты.
+по оплаченным и не отменённым заказам (отмена оплаченного = деньги вернули),
+день — по московскому времени оплаты.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.clock import today_moscow
-from core.enums import OrderEventType
+from core.enums import OrderEventType, OrderStatus
 from core.models import Order, OrderEvent, OrderItem, ProductVariant
 from core.services import board as board_service
 from core.workdays import WorkingCalendar, ensure_working_day, next_working_day
@@ -169,7 +170,7 @@ def _paid_in(since: dt.date, until: dt.date):
     paid_day = func.date(func.timezone(MOSCOW, Order.paid_at))
     return (
         Order.paid_at.is_not(None),
-        Order.refunded_at.is_(None),
+        Order.status != OrderStatus.CANCELLED,
         paid_day >= since,
         paid_day <= until,
     ), paid_day
@@ -254,7 +255,7 @@ async def sales_trend(session: AsyncSession, *, since: dt.date, until: dt.date) 
     # Новые — те, чей первый оплаченный заказ пришёлся на период.
     first_paid = (
         select(Order.customer_id, func.min(Order.paid_at).label("first_paid"))
-        .where(Order.paid_at.is_not(None), Order.refunded_at.is_(None))
+        .where(Order.paid_at.is_not(None), Order.status != OrderStatus.CANCELLED)
         .group_by(Order.customer_id)
         .subquery()
     )
@@ -345,7 +346,7 @@ async def customer_summary(session: AsyncSession) -> CustomerSummary:
             func.sum(Order.total_kopecks).label("spent"),
             func.min(Order.paid_at).label("first_paid"),
         )
-        .where(Order.paid_at.is_not(None), Order.refunded_at.is_(None))
+        .where(Order.paid_at.is_not(None), Order.status != OrderStatus.CANCELLED)
         .group_by(Order.customer_id)
         .subquery()
     )

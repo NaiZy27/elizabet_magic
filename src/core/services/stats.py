@@ -79,10 +79,11 @@ async def collect(
 ) -> Stats:
     """Собрать метрики за период по дате оплаты."""
     # Заказ попадает в период по моменту оплаты — по нему считается выручка.
+    # Оплаченный, но отменённый не считается: деньги за него вернули (вне системы).
     paid_at_date = func.date(func.timezone("Europe/Moscow", Order.paid_at))
     in_period = (
         Order.paid_at.is_not(None),
-        Order.refunded_at.is_(None),
+        Order.status != OrderStatus.CANCELLED,
         paid_at_date >= since,
         paid_at_date <= until,
     )
@@ -143,7 +144,7 @@ async def collect(
     repeat_customers = await session.scalar(
         select(func.count()).select_from(
             select(Order.customer_id)
-            .where(Order.paid_at.is_not(None), Order.refunded_at.is_(None))
+            .where(Order.paid_at.is_not(None), Order.status != OrderStatus.CANCELLED)
             .group_by(Order.customer_id)
             .having(func.count(Order.id) > 1)
             .subquery(),
