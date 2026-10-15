@@ -102,6 +102,19 @@ def receipt_json(order: Order, amount_kopecks: int) -> str | None:
     оплата пройдёт, а чек владелица пробьёт сама.
     """
     items = receipt_items(order)
+    test_amount = get_settings().payments_test_amount_kopecks
+    if test_amount and amount_kopecks == test_amount != order.total_kopecks:
+        # Режим проверки: настоящий чек на проверочную сумму одной строкой.
+        items = [
+            {
+                "name": "Подарочный бокс (проверка оплаты)",
+                "quantity": 1,
+                "sum": float(Decimal(amount_kopecks) / 100),
+                "payment_method": "full_payment",
+                "payment_object": "commodity",
+                "tax": "none",
+            },
+        ]
     total = sum(round(item["sum"] * 100) for item in items)
     if not items or total != amount_kopecks:
         return None

@@ -206,3 +206,22 @@ def test_test_mode_payment_is_reissued_in_production(shop, monkeypatch):
     assert not payments.is_current(stub)
     monkeypatch.setattr(shop, "is_test", True)
     assert payments.is_current(from_test)
+
+
+def test_test_amount_charges_one_ruble_with_matching_receipt(shop, monkeypatch):
+    """Режим проверки: платёж на 1 ₽ и чек одной строкой на тот же 1 ₽."""
+    from core.services import payments
+
+    monkeypatch.setattr(get_settings(), "payments_test_amount_kopecks", 100)
+    order = box_with_video()
+
+    assert payments.payable_kopecks(order) == 100
+    fields = payments.mark_checkout_started(Payment(id=42, amount_kopecks=100), order)
+    assert fields["OutSum"] == "1.00"
+    items = json.loads(robokassa.receipt_json(order, 100))["items"]
+    assert [(item["name"], item["sum"]) for item in items] == [
+        ("Подарочный бокс (проверка оплаты)", 1.0),
+    ]
+
+    monkeypatch.setattr(get_settings(), "payments_test_amount_kopecks", None)
+    assert payments.payable_kopecks(order) == 200000

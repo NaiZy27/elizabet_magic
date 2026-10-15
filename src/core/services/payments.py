@@ -104,12 +104,13 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
     """
     if order.status != OrderStatus.WAITING_PAYMENT:
         raise ConflictError("Оплатить можно только оформленный заказ")
+    amount = payable_kopecks(order)
     if order.total_kopecks <= 0:
         raise ValidationError("Сумма заказа должна быть больше нуля")
 
     existing = await get_pending_payment(session, order.id)
     if existing is not None:
-        if existing.amount_kopecks == order.total_kopecks and is_current(existing):
+        if existing.amount_kopecks == amount and is_current(existing):
             return existing
         # Заказ изменился после создания ссылки или сменился способ оплаты (заглушку
         # заменили Робокассой, тестовый режим — боевым) — старая попытка не годится.
@@ -121,7 +122,7 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
         provider=current_provider(),
         environment=current_environment(),
         public_token=uuid.uuid4(),
-        amount_kopecks=order.total_kopecks,
+        amount_kopecks=amount,
         status=PaymentStatus.PENDING,
     )
     session.add(payment)
@@ -135,6 +136,11 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
         actor=orders_service.ACTOR_BOT,
     )
     return payment
+
+
+def payable_kopecks(order: Order) -> int:
+    """Сколько списать за заказ. Обычно — его итог; в режиме проверки — проверочная сумма."""
+    return get_settings().payments_test_amount_kopecks or order.total_kopecks
 
 
 def is_current(payment: Payment) -> bool:
