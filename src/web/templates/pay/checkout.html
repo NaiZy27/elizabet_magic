@@ -41,7 +41,7 @@
       </tbody>
     </table>
 
-    <p class="pay-total">К оплате: {{ order.total_kopecks | rubles }}</p>
+    <p class="pay-total">К оплате: {{ payment.amount_kopecks | rubles }}</p>
 
     {% if is_stub %}
       <p class="pay-note">
@@ -53,7 +53,7 @@
       </form>
     {% else %}
       <p class="pay-note">Оплата картой или через СБП в Робокассе. Чек придёт на {{ order.recipient_email }}.</p>
-      <a class="button" href="/pay/{{ payment.public_token }}/go">Оплатить {{ order.total_kopecks | rubles }}</a>
+      <a class="button" href="/pay/{{ payment.public_token }}/go">Оплатить {{ payment.amount_kopecks | rubles }}</a>
     {% endif %}
 
     {% if bot_url %}

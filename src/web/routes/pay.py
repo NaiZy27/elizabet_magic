@@ -153,7 +153,11 @@ async def go_to_robokassa(request: Request, token: str, session: DbSession):
     response = render(
         request,
         "pay/redirect.html",
-        {"action": get_settings().robokassa.payment_url, "fields": fields, "order": order},
+        {
+            "action": get_settings().robokassa.payment_url,
+            "fields": fields,
+            "amount_kopecks": payment.amount_kopecks,
+        },
     )
     # Общая политика разрешает формам уходить только к нам — этой странице нужна Робокасса.
     response.headers["Content-Security-Policy"] = (

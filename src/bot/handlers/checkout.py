@@ -317,10 +317,9 @@ async def show_spoons_step(
         _, price = price_for_spoons(product, product.variants, count)
         options.append((count, price))
 
-    body = product.description or ""
+    note = ""
     if product.allows_extra_spoons and product.extra_spoon_price_kopecks is not None:
-        extra = format_rubles(product.extra_spoon_price_kopecks)
-        body = f"{body}\n\n+1 ложечка — {extra}".strip()
+        note = f"(+1 ложечка — {format_rubles(product.extra_spoon_price_kopecks)})"
 
     await state.set_state(Checkout.spoons)
     if product.photo_file_id:
@@ -331,7 +330,7 @@ async def show_spoons_step(
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 2),
             "Сколько ложечек?",
-            body,
+            note=note,
         ),
         keyboard=kb.spoons(options, chosen=data.get(SPOON_COUNT)),
     )

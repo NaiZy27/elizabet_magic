@@ -43,13 +43,18 @@ logger = logging.getLogger(__name__)
 
 
 def box_header(box_number: int, step: int) -> str:
-    """«Бокс 2 · шаг 3 из 4»."""
-    return f"Бокс {box_number} · шаг {step} из {BOX_STEPS}"
+    """«📦 Бокс 2 · [шаг 3 из 4]»."""
+    return f"📦 Бокс {box_number} · [шаг {step} из {BOX_STEPS}]"
 
 
-def compose(header: str | None, title: str, body: str = "") -> str:
-    """Текст шага: необязательная строка-подпись, заголовок жирным и тело."""
-    top = f"{header}\n<b>{title}</b>" if header else f"<b>{title}</b>"
+def compose(header: str | None, title: str, body: str = "", *, note: str = "") -> str:
+    """Текст шага: необязательная строка-подпись, заголовок жирным и тело.
+
+    `note` — пояснение в той же строке, что и заголовок, обычным шрифтом:
+    «<b>Сколько ложечек?</b> (+1 ложечка — 300 ₽)».
+    """
+    title_line = f"<b>{title}</b> {note}" if note else f"<b>{title}</b>"
+    top = f"{header}\n{title_line}" if header else title_line
     return f"{top}\n\n{body}".strip()
 
 

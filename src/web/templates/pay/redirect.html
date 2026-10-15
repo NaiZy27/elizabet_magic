@@ -14,7 +14,7 @@
   <div class="card">
     <div class="eyebrow">Elizabet Magic</div>
     <h1>Переходим к оплате</h1>
-    <p class="muted">Заказ на {{ order.total_kopecks | rubles }}. Сейчас откроется страница Робокассы.</p>
+    <p class="muted">К оплате {{ amount_kopecks | rubles }}. Сейчас откроется страница Робокассы.</p>
     <form id="robokassa" method="post" action="{{ action }}" accept-charset="utf-8">
       {% for name, value in fields.items() %}
         <input type="hidden" name="{{ name }}" value="{{ value }}">
