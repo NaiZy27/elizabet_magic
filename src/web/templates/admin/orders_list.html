@@ -66,8 +66,7 @@
             </td>
             <td data-label="Город">{{ (order.pickup_snapshot or {}).get('city') or '—' }}</td>
             <td data-label="Этап">
-              {% if order.refunded_at %}<span class="status refunded">Возврат</span>
-              {% else %}<span class="status {{ order.status.value }}">{{ order.status.value | order_status }}</span>{% endif %}
+              <span class="status {{ order.status.value }}">{{ order.status.value | order_status }}</span>
             </td>
             {% if admin.is_owner %}<td class="num" data-label="Сумма"><b>{{ order.total_kopecks | rubles }}</b></td>{% endif %}
           </tr>

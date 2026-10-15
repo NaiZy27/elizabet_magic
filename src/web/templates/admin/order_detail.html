@@ -12,7 +12,6 @@
       <span class="pill"><span class="status {{ order.status.value }}">{{ order.status.value | order_status }}</span></span>
       {% if ready_date %}<span class="pill">Собрать к {{ ready_date | ru_date_short }}</span>{% endif %}
       {% if is_late %}<span class="pill"><span class="status bad">Не успеваем</span></span>{% endif %}
-      {% if order.refunded_at %}<span class="pill"><span class="status refunded">Возврат {{ order.refunded_at | ru_datetime_short }}</span></span>{% endif %}
       {% if order.arrived_at %}<span class="pill"><span class="status shipped">В ПВЗ с {{ order.arrived_at | ru_datetime_short }}</span></span>{% endif %}
       {% if order.cancel_reason %}<span class="pill muted">{{ order.cancel_reason.value | cancel_reason }}</span>{% endif %}
       <span class="muted small">от {{ order.created_at | ru_datetime_short }}</span>
@@ -70,8 +69,7 @@
       <div class="kv"><span>Доставка</span><span>{{ order.delivery_kopecks | rubles }}</span></div>
       <div class="kv"><span>Оплата</span>
         <span>
-          {% if order.refunded_at %}<span class="status refunded">Возвращена {{ order.refunded_at | ru_datetime_short }}</span>
-          {% elif order.paid_at %}<span class="status paid">Оплачен {{ order.paid_at | ru_datetime_short }}</span>
+          {% if order.paid_at %}<span class="status paid">Оплачен {{ order.paid_at | ru_datetime_short }}</span>
           {% else %}<span class="status waiting_payment">Не оплачен{% if order.expires_at %} · до {{ order.expires_at | ru_datetime_short }}{% endif %}</span>{% endif %}
         </span>
       </div>
@@ -96,11 +94,10 @@
                 · {{ receipt.amount_kopecks | rubles }} · {{ receipt.provider.value | receipt_provider }}
                 {% if receipt.url %}· <a href="{{ receipt.url }}" rel="noreferrer" target="_blank">открыть</a>{% endif %}
                 {% if receipt.buyer_email %}<br><span class="muted small">отправлен на {{ receipt.buyer_email }}</span>{% endif %}
-                {% if receipt.annul_reason %}<br><span class="muted small">аннулирован: {{ receipt.annul_reason }}</span>{% endif %}
               </span>
             </div>
           {% endfor %}
-          {% if order.paid_at and not order.refunded_at %}
+          {% if order.paid_at %}
             <form method="post" action="/admin/orders/{{ order.id }}/receipt" style="margin-top:16px">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <div class="form-row">
@@ -109,7 +106,8 @@
               </div>
               <div class="form-row">
                 <input name="external_id" placeholder="Номер чека (необязательно)">
-                <span class="helptext">Ссылка уйдёт клиенту в бот.</span>
+                <span class="helptext">Ссылка уйдёт клиенту в бот.{% if receipts and receipts[0].status.value == 'sent' %}
+                  Робочеки уже отправили чек на email клиента — ссылку можно взять в их истории чеков.{% endif %}</span>
               </div>
               <button class="secondary" type="submit">Сохранить чек</button>
             </form>
@@ -191,24 +189,15 @@
           <button class="secondary small" type="submit" style="margin-top:8px">Сохранить дату</button>
         </form>
 
-        {# Возврат возможен, пока заказ не получен и не отменён: из «Получен» отменить нельзя. #}
-        {% if can_refund and order.status.value not in ('completed', 'cancelled') %}
-          <form method="post" action="/admin/orders/{{ order.id }}/refund" class="form-row">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label for="refund_reason">Вернуть деньги</label>
-            <input id="refund_reason" name="reason" placeholder="Причина">
-            <label class="inline-check">
-              <input type="checkbox" name="confirm" value="true">
-              Деньги вернула, чек в «Мой налог» аннулирован
-            </label>
-            <span class="helptext">Заказ отменится, клиент получит сообщение.</span>
-            <button class="danger small" type="submit" style="margin-top:8px">Оформить возврат</button>
-          </form>
-        {% elif order.status.value not in ('cancelled', 'completed') %}
+        {% if order.status.value not in ('cancelled', 'completed') %}
           <form method="post" action="/admin/orders/{{ order.id }}/cancel" class="form-row">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label for="reason">Отменить заказ</label>
             <input id="reason" name="reason" placeholder="Причина">
+            {% if order.paid_at %}
+              <span class="helptext">Заказ оплачен: деньги верните в кабинете Робокассы,
+                а чек аннулируйте в «Мой налог». Клиент получит сообщение об отмене.</span>
+            {% endif %}
             <button class="danger small" type="submit" style="margin-top:8px">Отменить</button>
           </form>
         {% endif %}

@@ -73,10 +73,6 @@ DEFAULT_TEMPLATES: dict[MessageTemplateKey, str] = {
     MessageTemplateKey.RECEIPT_ISSUED: (
         "Чек по заказу {{ order_number }} сформирован: {{ receipt_url }}"
     ),
-    MessageTemplateKey.ORDER_REFUNDED: (
-        "Мы вернули оплату по заказу {{ order_number }} — {{ total }}.\n"
-        "Деньги придут на карту в течение нескольких дней, чек аннулирован."
-    ),
     MessageTemplateKey.STATUS_ASSEMBLING: (
         "Собираем ваш бокс 🎀\nЗаказ {{ order_number }} уже в работе."
     ),

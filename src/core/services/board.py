@@ -35,8 +35,8 @@ __all__ = [
     "BoardCard",
     "BoardColumn",
     "BoardMetrics",
-    "QueueSpot",
     "QueueEntry",
+    "QueueSpot",
     "WorkingCalendar",
     "append_to_queue",
     "compute_ready_dates",
@@ -137,7 +137,7 @@ async def load_board(
     revenue = await session.scalar(
         select(func.coalesce(func.sum(Order.total_kopecks), 0)).where(
             Order.paid_at.is_not(None),
-            Order.refunded_at.is_(None),
+            Order.status != OrderStatus.CANCELLED,
             func.date(func.timezone("Europe/Moscow", Order.paid_at)) >= month_start,
         ),
     )

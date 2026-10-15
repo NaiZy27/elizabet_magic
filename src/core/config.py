@@ -93,6 +93,8 @@ class RobokassaSettings(BaseSettings):
     hash_algo: Literal["md5", "sha1", "sha256", "sha384", "sha512"] = "md5"
     is_test: bool = True
     payment_url: str = "https://auth.robokassa.ru/Merchant/Index.aspx"
+    # сверено с докой: https://docs.robokassa.ru/ru/xml-interfaces, 09.10.2026
+    op_state_url: str = "https://auth.robokassa.ru/Merchant/WebService/Service.asmx/OpStateExt"
     # Белый список адресов, с которых приходит ResultURL.
     # сверено с докой: https://docs.robokassa.ru/, 21.09.2026 — перепроверять при деплое
     result_url_allowed_ips: tuple[str, ...] = ("185.59.216.65", "185.59.217.65")

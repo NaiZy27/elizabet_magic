@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse
@@ -117,9 +118,17 @@ async def robokassa_fail(request: Request, session: DbSession):
     return RedirectResponse(f"/pay/{payment.public_token}", status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _robokassa_origin() -> str:
+    parts = urlsplit(get_settings().robokassa.payment_url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 @router.get("/{token}/go")
 async def go_to_robokassa(request: Request, token: str, session: DbSession):
-    """Кнопка «Оплатить»: собираем подписанную ссылку и отправляем клиента в Робокассу."""
+    """Кнопка «Оплатить»: страница сама отправляет подписанную форму в Робокассу.
+
+    Форма, а не редирект по ссылке: чек в ссылке занял бы тысячи символов.
+    """
     try:
         payment = await payments_service.get_by_token(session, token)
     except NotFoundError as error:
@@ -134,13 +143,26 @@ async def go_to_robokassa(request: Request, token: str, session: DbSession):
         return RedirectResponse(f"/pay/{token}/success", status_code=status.HTTP_303_SEE_OTHER)
     if (
         payment.provider != PaymentProvider.ROBOKASSA
+        or not payments_service.is_current(payment)
         or payment.status != PaymentStatus.PENDING
         or order.status != OrderStatus.WAITING_PAYMENT
     ):
         return RedirectResponse(f"/pay/{token}", status_code=status.HTTP_303_SEE_OTHER)
-    return RedirectResponse(
-        robokassa.payment_link(payment, order), status_code=status.HTTP_303_SEE_OTHER
+
+    fields = payments_service.mark_checkout_started(payment, order)
+    response = render(
+        request,
+        "pay/redirect.html",
+        {"action": get_settings().robokassa.payment_url, "fields": fields, "order": order},
     )
+    # Общая политика разрешает формам уходить только к нам — этой странице нужна Робокасса.
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
+        f"form-action {_robokassa_origin()}; frame-ancestors 'none'"
+    )
+    # В форме подпись счёта: такую страницу браузеру незачем хранить.
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/{token}")
@@ -178,11 +200,11 @@ async def payment_page(request: Request, token: str, session: DbSession):
             status_code=status.HTTP_410_GONE,
         )
 
-    if payment.provider != payments_service.current_provider():
-        # Способ оплаты сменили после выставления счёта — выставляем новый.
+    if not payments_service.is_current(payment):
+        # Способ оплаты или режим Робокассы сменили после выставления счёта — новый счёт.
         payment = await payments_service.create_payment(session, order)
         return RedirectResponse(
-            f"/pay/{payment.public_token}",
+            payments_service.payment_url(payment),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

@@ -80,7 +80,6 @@ class CancelReason(StrEnum):
     EXPIRED = "expired"
     CUSTOMER = "customer"
     ADMIN = "admin"
-    REFUND = "refund"
 
 
 class AdminRole(StrEnum):
@@ -97,9 +96,11 @@ class ReceiptStatus(StrEnum):
 
     #: Платёж прошёл, чек ещё не зарегистрирован.
     PENDING = "pending"
+    #: Состав чека ушёл в Робочеки вместе с оплатой: они сами регистрируют чек
+    #: в «Мой налог» и шлют его клиенту на email. Ссылку Робокасса по API не отдаёт —
+    #: её видно в кабинете Робочеков, и владелица может вставить её в карточке заказа.
+    SENT = "sent"
     REGISTERED = "registered"
-    #: Чек аннулирован — так в НПД оформляется возврат.
-    ANNULLED = "annulled"
     FAILED = "failed"
 
 
@@ -120,7 +121,6 @@ class PaymentStatus(StrEnum):
     PAID = "paid"
     FAILED = "failed"
     CANCELLED = "cancelled"
-    REFUNDED = "refunded"
 
 
 class PaymentProvider(StrEnum):
@@ -196,11 +196,9 @@ class OrderEventType(StrEnum):
     NOTIFICATION_FAILED = "notification_failed"
     #: Оплата пришла после автоотмены по сроку — заказ вернулся в работу.
     REVIVED = "revived"
-    #: Оплата пришла по заказу, который вернуть нельзя: нужен возврат.
+    #: Оплата пришла по заказу, который вернуть нельзя: деньги нужно вернуть клиенту.
     PAYMENT_AFTER_CANCEL = "payment_after_cancel"
     RECEIPT_REGISTERED = "receipt_registered"
-    RECEIPT_ANNULLED = "receipt_annulled"
-    REFUNDED = "refunded"
     ARRIVED_AT_PICKUP = "arrived_at_pickup"
 
 
@@ -217,7 +215,6 @@ class MessageTemplateKey(StrEnum):
     STATUS_COMPLETED = "status_completed"
     ORDER_CANCELLED = "order_cancelled"
     RECEIPT_ISSUED = "receipt_issued"
-    ORDER_REFUNDED = "order_refunded"
 
 
 #: Какой шаблон уходит клиенту при переходе в статус. Для остальных статусов — ничего.

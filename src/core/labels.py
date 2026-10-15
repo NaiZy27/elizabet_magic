@@ -38,7 +38,6 @@ PAYMENT_STATUS_LABELS: dict[PaymentStatus, str] = {
     PaymentStatus.PAID: "Оплачен",
     PaymentStatus.FAILED: "Не прошёл",
     PaymentStatus.CANCELLED: "Отменён",
-    PaymentStatus.REFUNDED: "Возвращён",
 }
 
 PAYMENT_PROVIDER_LABELS: dict[PaymentProvider, str] = {
@@ -50,7 +49,6 @@ CANCEL_REASON_LABELS: dict[CancelReason, str] = {
     CancelReason.EXPIRED: "не оплачен вовремя",
     CancelReason.CUSTOMER: "отменён клиентом",
     CancelReason.ADMIN: "отменён в панели",
-    CancelReason.REFUND: "возврат оплаты",
 }
 
 ADMIN_ROLE_LABELS: dict[AdminRole, str] = {
@@ -60,8 +58,8 @@ ADMIN_ROLE_LABELS: dict[AdminRole, str] = {
 
 RECEIPT_STATUS_LABELS: dict[ReceiptStatus, str] = {
     ReceiptStatus.PENDING: "Ожидает регистрации",
+    ReceiptStatus.SENT: "Передан в Робочеки",
     ReceiptStatus.REGISTERED: "Зарегистрирован",
-    ReceiptStatus.ANNULLED: "Аннулирован",
     ReceiptStatus.FAILED: "Ошибка регистрации",
 }
 
@@ -111,8 +109,6 @@ ORDER_EVENT_LABELS: dict[OrderEventType, str] = {
     OrderEventType.REVIVED: "Оплата пришла после автоотмены — заказ возвращён",
     OrderEventType.PAYMENT_AFTER_CANCEL: "⚠️ Оплата по отменённому заказу — нужен возврат",
     OrderEventType.RECEIPT_REGISTERED: "Чек зарегистрирован",
-    OrderEventType.RECEIPT_ANNULLED: "Чек аннулирован",
-    OrderEventType.REFUNDED: "Оплата возвращена",
     OrderEventType.ARRIVED_AT_PICKUP: "Посылка в пункте выдачи",
 }
 
@@ -129,10 +125,6 @@ MESSAGE_TEMPLATE_LABELS: dict[MessageTemplateKey, tuple[str, str]] = {
     MessageTemplateKey.RECEIPT_ISSUED: (
         "Чек сформирован",
         "Когда чек зарегистрирован в «Мой налог» и у него есть ссылка.",
-    ),
-    MessageTemplateKey.ORDER_REFUNDED: (
-        "Оплата возвращена",
-        "Когда вы оформили возврат по заказу.",
     ),
     MessageTemplateKey.STATUS_ASSEMBLING: (
         "Заказ собирается",

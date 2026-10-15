@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import TypeVar
 
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
@@ -32,10 +31,12 @@ from core.workdays import WorkingCalendar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T", bound=SettingsModel)
 
-
-async def read_setting(session: AsyncSession, key: SettingKey, schema: type[T]) -> T:
+async def read_setting[T: SettingsModel](
+    session: AsyncSession,
+    key: SettingKey,
+    schema: type[T],
+) -> T:
     """Значение настройки, разобранное схемой. Нет записи или битая — умолчания."""
     raw = await session.scalar(select(Setting.value).where(Setting.key == key.value))
     if not raw:

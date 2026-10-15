@@ -1,0 +1,27 @@
+{# Переход в Робокассу: подписанная форма отправляется сама. Кнопка — если скрипты выключены. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Переход к оплате — Elizabet Magic</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=6">
+  <script src="{{ url_for('static', path='pay-redirect.js') }}" defer></script>
+</head>
+<body class="light">
+<div class="pay-page">
+  <div class="card">
+    <div class="eyebrow">Elizabet Magic</div>
+    <h1>Переходим к оплате</h1>
+    <p class="muted">Заказ на {{ order.total_kopecks | rubles }}. Сейчас откроется страница Робокассы.</p>
+    <form id="robokassa" method="post" action="{{ action }}" accept-charset="utf-8">
+      {% for name, value in fields.items() %}
+        <input type="hidden" name="{{ name }}" value="{{ value }}">
+      {% endfor %}
+      <button type="submit">Перейти к оплате</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

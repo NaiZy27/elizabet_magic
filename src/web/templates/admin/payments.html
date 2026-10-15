@@ -13,7 +13,7 @@
 <form class="toolbar" method="get">
   <nav class="tabs">
     <button class="{{ 'on' if not selected_status }}" name="status" value="" type="submit">Все</button>
-    {% for value in ['paid', 'pending', 'failed', 'refunded'] %}
+    {% for value in ['paid', 'pending', 'failed'] %}
       <button class="{{ 'on' if selected_status == value }}" name="status" value="{{ value }}" type="submit">{{ value | payment_status }}</button>
     {% endfor %}
   </nav>

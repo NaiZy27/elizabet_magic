@@ -1,7 +1,7 @@
 """Список заказов и карточка заказа.
 
 Сборщику доступно то, что нужно у стола: состав, пожелания, этап и заметка.
-Деньги, чеки, возвраты, отмена и сроки для клиента — только владелице.
+Деньги, чеки, отмена и сроки для клиента — только владелице.
 """
 
 from __future__ import annotations
@@ -17,12 +17,11 @@ from sqlalchemy.orm import selectinload
 
 from core.clock import now_utc
 from core.db import folded
-from core.enums import CancelReason, OrderEventType, OrderStatus, PaymentStatus
+from core.enums import CancelReason, OrderEventType, OrderStatus
 from core.errors import DomainError, NotFoundError
 from core.models import Customer, Order, OrderItem, Payment, Shipment
 from core.services import board as board_service
 from core.services import orders as orders_service
-from core.services import payments as payments_service
 from core.services import receipts as receipts_service
 from core.services import settings as settings_service
 from web.security import CurrentAdmin, CurrentOwner, DbSession, csrf_token, verify_csrf
@@ -140,7 +139,6 @@ async def order_detail(
             "order": order,
             "events": events,
             "payments": payments,
-            "can_refund": any(payment.status == PaymentStatus.PAID for payment in payments),
             "receipts": receipts,
             "shipments": list(shipments),
             "ready_date": ready_date,
@@ -314,7 +312,7 @@ async def cancel_order(
     reason: Annotated[str, Form()] = "",
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
-    """Отмена без возврата денег. Для оплаченного заказа нужна кнопка «Возврат»."""
+    """Отмена заказа. Деньги за оплаченный владелица возвращает в кабинете Робокассы."""
     verify_csrf(request, csrf)
     order = await _get_order(session, order_id)
     try:
@@ -324,39 +322,6 @@ async def cancel_order(
             reason=CancelReason.ADMIN,
             actor=orders_service.admin_actor(admin.id),
             comment=reason.strip() or "отменён вручную",
-        )
-    except DomainError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=error.message,
-        ) from error
-    return _back_to_order(order_id)
-
-
-@router.post("/{order_id}/refund")
-async def refund_order(
-    request: Request,
-    order_id: int,
-    session: DbSession,
-    admin: CurrentOwner,
-    reason: Annotated[str, Form()] = "",
-    confirm: Annotated[bool, Form()] = False,
-    csrf: Annotated[str, Form(alias="csrf_token")] = "",
-):
-    """Возврат денег. Пока — отметка о возврате, сделанном вручную."""
-    verify_csrf(request, csrf)
-    if not confirm:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Подтвердите, что деньги клиенту уже вернули",
-        )
-    order = await _get_order(session, order_id)
-    try:
-        await payments_service.refund_order(
-            session,
-            order,
-            actor=orders_service.admin_actor(admin.id),
-            reason=reason.strip() or "по решению владелицы",
         )
     except DomainError as error:
         raise HTTPException(

@@ -1,19 +1,28 @@
 """Оплата заказа.
 
-Пока подключён только внутренний провайдер-заглушка: оплата подтверждается со
-страницы /pay вручную. Робокасса встанет на это же место — создание платежа,
-идемпотентное подтверждение и переход заказа в очередь останутся без изменений.
+Деньги принимает Робокасса (PAYMENTS_MODE=robokassa) или, на тестовом контуре,
+заглушка: оплата подтверждается кнопкой на странице /pay.
+
+Как оплата попадает к нам:
+- уведомление Робокассы на ResultURL — основной путь;
+- сверка (`reconcile`) — фоновая задача спрашивает Робокассу о счетах, по которым
+  клиент уходил в кассу, но уведомления не было. Так оплата не теряется, если
+  ResultURL не дошёл: сервер перезагружался, в кабинете опечатка в адресе.
 
 Подтверждение оплаты идемпотентно: уведомление о платеже может прийти несколько раз,
 но заказ должен быть оплачен ровно один раз.
 
 Оплата, пришедшая после отмены, не теряется: деньги у нас, значит заказ либо
 возвращается в работу (если его отменили мы по сроку оплаты), либо владелица
-получает сигнал, что нужен возврат.
+получает сигнал вернуть деньги.
+
+Возвратов в системе нет: клиент пишет в поддержку, владелица возвращает деньги
+в кабинете Робокассы и аннулирует чек в «Мой налог», а заказ отменяет в панели.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import uuid
 from typing import Any
@@ -25,19 +34,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.clock import now_utc
 from core.config import get_settings
 from core.enums import (
-    CancelReason,
-    MessageTemplateKey,
     OrderEventType,
     OrderStatus,
     PaymentProvider,
     PaymentStatus,
     ProviderEnvironment,
-    ReceiptStatus,
 )
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.models import Order, Payment
 from core.money import format_rubles
-from core.services import notifications, receipts
+from core.services import notifications, receipts, robokassa
 from core.services import orders as orders_service
 
 logger = logging.getLogger(__name__)
@@ -101,19 +107,18 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
     if order.total_kopecks <= 0:
         raise ValidationError("Сумма заказа должна быть больше нуля")
 
-    provider = current_provider()
     existing = await get_pending_payment(session, order.id)
     if existing is not None:
-        if existing.amount_kopecks == order.total_kopecks and existing.provider == provider:
+        if existing.amount_kopecks == order.total_kopecks and is_current(existing):
             return existing
         # Заказ изменился после создания ссылки или сменился способ оплаты (заглушку
-        # заменили Робокассой) — старая попытка больше не годится.
+        # заменили Робокассой, тестовый режим — боевым) — старая попытка не годится.
         existing.status = PaymentStatus.CANCELLED
         await session.flush()
 
     payment = Payment(
         order_id=order.id,
-        provider=provider,
+        provider=current_provider(),
         environment=current_environment(),
         public_token=uuid.uuid4(),
         amount_kopecks=order.total_kopecks,
@@ -130,6 +135,17 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
         actor=orders_service.ACTOR_BOT,
     )
     return payment
+
+
+def is_current(payment: Payment) -> bool:
+    """Выставлена ли попытка тем же способом, каким деньги принимаются сейчас.
+
+    Попытку из тестового режима Робокассы нельзя оплатить в боевом: номер счёта уже
+    мог использоваться для тестовой операции, а сверка тестовые счета не видит.
+    """
+    if payment.provider != current_provider():
+        return False
+    return payment.provider == PaymentProvider.STUB or payment.environment == current_environment()
 
 
 async def get_pending_payment(session: AsyncSession, order_id: int) -> Payment | None:
@@ -183,7 +199,7 @@ async def confirm_payment(
     )
     await session.refresh(payment)
 
-    if payment.status in {PaymentStatus.PAID, PaymentStatus.REFUNDED}:
+    if payment.status == PaymentStatus.PAID:
         return payment
     if amount_kopecks is not None and amount_kopecks != payment.amount_kopecks:
         raise ValidationError("Оплаченная сумма не совпадает с суммой заказа")
@@ -260,7 +276,8 @@ async def _accept_late_payment(
     notifications.schedule_owner_text(
         session,
         f"⚠️ Пришла оплата {format_rubles(payment.amount_kopecks)} по заказу "
-        f"{order.admin_label}, но {problem}. Нужно вернуть деньги клиенту.",
+        f"{order.admin_label}, но {problem}. Верните деньги клиенту в кабинете "
+        "Робокассы и аннулируйте чек в «Мой налог».",
     )
     return payment
 
@@ -316,82 +333,98 @@ async def cancel_pending(session: AsyncSession, order_id: int) -> None:
         await session.flush()
 
 
-async def refund_order(
+# --- сверка с Робокассой ---
+
+#: Сколько ждём уведомления ResultURL, прежде чем спрашивать Робокассу самим.
+RECONCILE_AFTER = dt.timedelta(minutes=5)
+#: Как долго после перехода в кассу продолжаем проверять счёт.
+RECONCILE_WINDOW = dt.timedelta(days=3)
+
+
+def reconcile_enabled() -> bool:
+    """OpStateExt не видит тестовых оплат — сверка имеет смысл только в боевом режиме."""
+    settings = get_settings()
+    return settings.payments_are_real and not settings.robokassa.is_test
+
+
+async def payments_to_reconcile(
     session: AsyncSession,
-    order: Order,
     *,
-    actor: str,
-    reason: str,
-) -> Payment:
-    """Вернуть деньги за заказ целиком.
+    now: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[int]:
+    """Неоплаченные у нас счета, по которым клиент уходил в Робокассу.
 
-    ЗАТЫЧКА первого этапа: деньги владелица возвращает сама (переводом или в кабинете
-    Робокассы), а здесь фиксируется факт возврата, аннулируется чек и отменяется заказ.
-    Когда подключим Робокассу, на месте `_refund_with_provider` будет вызов её API
-    возврата — он же аннулирует чек в «Мой налог».
+    Берём и закрытые попытки: клиент мог заплатить на уже открытой странице кассы
+    после автоотмены заказа — такую оплату `confirm_payment` тоже примет.
     """
-    # Порядок блокировок как везде: заказ, потом платёж.
-    await orders_service.lock(session, order)
-    payment = await session.scalar(
-        select(Payment)
-        .where(Payment.order_id == order.id, Payment.status == PaymentStatus.PAID)
-        .with_for_update(),
+    moment = now or now_utc()
+    result = await session.scalars(
+        select(Payment.id)
+        .where(
+            Payment.provider == PaymentProvider.ROBOKASSA,
+            Payment.environment == ProviderEnvironment.PRODUCTION,
+            Payment.paid_at.is_(None),
+            Payment.status.in_(
+                [PaymentStatus.PENDING, PaymentStatus.CANCELLED, PaymentStatus.FAILED],
+            ),
+            Payment.checkout_started_at.is_not(None),
+            Payment.checkout_started_at < moment - RECONCILE_AFTER,
+            Payment.checkout_started_at > moment - RECONCILE_WINDOW,
+        )
+        .order_by(Payment.checkout_started_at.desc())
+        .limit(limit),
     )
-    if payment is None:
-        raise ConflictError("По заказу нет оплаты, которую можно вернуть")
+    return list(result)
 
-    await _refund_with_provider(payment)
 
-    payment.status = PaymentStatus.REFUNDED
-    payment.refunded_at = now_utc()
-    order.refunded_at = payment.refunded_at
-    await session.flush()
+async def reconcile(session: AsyncSession, payment_id: int) -> bool:
+    """Спросить Робокассу о счёте и провести оплату, если она там есть.
 
-    receipt = await receipts.get_for_payment(session, payment.id)
-    if receipt is not None and receipt.status != ReceiptStatus.ANNULLED:
-        await receipts.annul(session, receipt, order, reason=f"возврат: {reason}", actor=actor)
+    True — оплата нашлась и проведена этим вызовом.
+    """
+    state = await robokassa.operation_state(payment_id)
+    if state is None or not state.is_paid:
+        return False
 
-    await orders_service.log_event(
+    paid_before = await session.scalar(select(Payment.paid_at).where(Payment.id == payment_id))
+    if paid_before is not None:
+        # Пока мы спрашивали, пришло уведомление — оплата уже проведена.
+        return False
+    payment = await confirm_payment(
         session,
-        order,
-        OrderEventType.REFUNDED,
-        payload={
-            "payment_id": payment.id,
-            "amount_kopecks": payment.amount_kopecks,
-            "reason": reason,
+        payment_id,
+        external_id=str(payment_id),
+        raw_result={
+            "source": "OpStateExt",
+            "state": state.code,
+            "inc_sum": state.inc_sum,
+            "payment_method": state.payment_method,
         },
-        actor=actor,
     )
-
-    if order.status == OrderStatus.CANCELLED:
-        notifications.schedule_customer_notification(
-            session,
-            order,
-            MessageTemplateKey.ORDER_REFUNDED,
-        )
-    else:
-        await orders_service.cancel(
-            session,
-            order,
-            reason=CancelReason.REFUND,
-            actor=actor,
-            comment=reason,
-            template_key=MessageTemplateKey.ORDER_REFUNDED,
-        )
-    return payment
+    if (payment.raw_result or {}).get("source") != "OpStateExt":
+        # Уведомление успело провести оплату, пока мы ждали блокировку.
+        return False
+    order = await orders_service.get_order(session, payment.order_id)
+    logger.warning("Оплата по счёту %s найдена сверкой: ResultURL не дошёл", payment_id)
+    notifications.schedule_owner_text(
+        session,
+        f"Оплата по заказу {order.admin_label} подтверждена сверкой с Робокассой: "
+        "её уведомление до нас не дошло. Если такое повторяется, проверьте Result URL "
+        "в технических настройках магазина.",
+    )
+    return True
 
 
-async def _refund_with_provider(payment: Payment) -> None:
-    """Возврат через платёжную систему.
+def mark_checkout_started(payment: Payment, order: Order) -> dict[str, str]:
+    """Клиент уходит в Робокассу: запомнить это и собрать поля формы оплаты.
 
-    TODO: вызвать API возврата Робокассы, когда магазин будет подключён. Сейчас
-    деньги возвращаются вручную, поэтому здесь только проверка, что это не ошибка.
+    Здесь же фиксируется, передан ли в кассу состав чека — от этого зависит,
+    пробьют ли чек Робочеки или его нужно оформить руками.
     """
-    if payment.provider == PaymentProvider.ROBOKASSA:
-        logger.warning(
-            "Возврат по платежу %s отмечен вручную: API возврата Робокассы ещё не подключён",
-            payment.id,
-        )
+    payment.checkout_started_at = payment.checkout_started_at or now_utc()
+    payment.receipt_sent = robokassa.receipt_json(order, payment.amount_kopecks) is not None
+    return robokassa.checkout_fields(payment, order)
 
 
 async def list_payments(session: AsyncSession, order_id: int) -> list[Payment]:
