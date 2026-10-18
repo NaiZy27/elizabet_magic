@@ -31,6 +31,30 @@ def orders_phrase(count: int) -> str:
     return f"{count} {pluralize(count, 'заказ', 'заказа', 'заказов')}"
 
 
+def phone_e164(value: str | None) -> str | None:
+    """Российский номер в виде +79001234567. None — если это не похоже на номер.
+
+    Клиент пишет как угодно: «8 900 123-45-67», «+7(900)1234567», «9001234567».
+    """
+    digits = "".join(character for character in value or "" if character.isdigit())
+    if len(digits) == 10:
+        digits = f"7{digits}"
+    elif len(digits) == 11 and digits[0] == "8":
+        digits = f"7{digits[1:]}"
+    if len(digits) != 11 or digits[0] != "7":
+        return None
+    return f"+{digits}"
+
+
+def phone_pretty(value: str | None) -> str:
+    """«+7 900 123-45-67» — чтобы владелице было удобно читать и переписывать."""
+    e164 = phone_e164(value)
+    if e164 is None:
+        return (value or "").strip()
+    d = e164[2:]
+    return f"+7 {d[:3]} {d[3:6]}-{d[6:8]}-{d[8:]}"
+
+
 def truncate(value: str, limit: int, tail: str = "…") -> str:
     """Обрезать длинный текст для карточки или кнопки."""
     value = value.strip()

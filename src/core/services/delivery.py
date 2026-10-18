@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -14,10 +15,14 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from core.enums import DeliveryProviderCode, ProviderEnvironment
-from core.errors import NotFoundError
+from core.errors import ExternalServiceError, NotFoundError
 from core.models import DeliveryProvider, Order, PickupPoint
+from core.services import cdek
 from core.text import search_words
+
+logger = logging.getLogger(__name__)
 
 #: Сколько пунктов показываем клиенту за раз.
 PICKUP_POINTS_PAGE_SIZE = 5
@@ -116,13 +121,25 @@ async def _visible_providers(
     return list(providers) if providers is not None else await enabled_codes(session)
 
 
+def is_automatic(code: DeliveryProviderCode | str | None) -> bool:
+    """Работает ли служба по API: сама считает цену и создаёт отправление.
+
+    Сейчас это СДЭК с ключами. Остальные службы (Яндекс, Wildberries, Ozon до ключей)
+    ручные: цена — резервная из панели, отправку владелица оформляет сама.
+    """
+    return code == DeliveryProviderCode.CDEK and get_settings().cdek.is_configured
+
+
 async def fixed_price_kopecks(session: AsyncSession) -> int | None:
     """Единая цена доставки, если у всех включённых служб она одинаковая.
 
-    Пока службы не подключены по API, цена — резервная из раздела «Доставка» в
-    панели, и у СДЭК и Яндекса она одна (500 ₽). Её и называем клиенту заранее.
+    Цену называем клиенту заранее, только пока все службы ручные и резервная цена у
+    них одна (500 ₽). Если хоть одна считает по тарифу — цена зависит от пункта.
     """
-    prices = {provider.fallback_price_kopecks for provider in await enabled_providers(session)}
+    providers = await enabled_providers(session)
+    if any(is_automatic(provider.code) for provider in providers):
+        return None
+    prices = {provider.fallback_price_kopecks for provider in providers}
     return prices.pop() if len(prices) == 1 else None
 
 
@@ -307,18 +324,42 @@ async def quote(
     *,
     point: PickupPoint,
     parcel: Parcel,
+    declared_kopecks: int = 0,
 ) -> DeliveryQuote:
     """Стоимость доставки до пункта выдачи.
 
-    Клиент API службы подключается здесь же: пока его нет, цена берётся резервная
-    из настроек службы, и заказ помечается событием об этом.
+    СДЭК с ключами считает по тарифу (с объявленной стоимостью — за неё СДЭК берёт
+    страховку). Ручные службы и СДЭК, который не ответил, — по резервной цене из
+    панели; заказ тогда помечается событием, чтобы владелица видела, что цена не
+    настоящая.
     """
-    provider = await get_provider(session, DeliveryProviderCode(point.provider))
-    # Здесь появится вызов API службы, когда будет заключён договор.
+    code = DeliveryProviderCode(point.provider)
+    provider = await get_provider(session, code)
+    if is_automatic(code):
+        try:
+            tariff = await cdek.calculate(
+                to_point=point.external_id,
+                weight_g=parcel.weight_g,
+                length_cm=parcel.length_cm,
+                width_cm=parcel.width_cm,
+                height_cm=parcel.height_cm,
+                declared_kopecks=declared_kopecks,
+            )
+        except ExternalServiceError as error:
+            logger.warning("СДЭК не посчитал доставку до %s: %s", point.external_id, error)
+        else:
+            return DeliveryQuote(
+                price_kopecks=tariff.price_kopecks,
+                is_fallback=False,
+                provider_code=code,
+                provider_name=provider.name,
+                days_min=tariff.days_min,
+                days_max=tariff.days_max,
+            )
     return DeliveryQuote(
         price_kopecks=provider.fallback_price_kopecks,
         is_fallback=True,
-        provider_code=DeliveryProviderCode(point.provider),
+        provider_code=code,
         provider_name=provider.name,
     )
 

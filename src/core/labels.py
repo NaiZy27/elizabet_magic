@@ -81,6 +81,8 @@ SHIPMENT_STATUS_LABELS: dict[ShipmentStatus, str] = {
 DELIVERY_PROVIDER_LABELS: dict[DeliveryProviderCode, str] = {
     DeliveryProviderCode.CDEK: "СДЭК",
     DeliveryProviderCode.YANDEX: "Яндекс Доставка",
+    DeliveryProviderCode.OZON: "Ozon",
+    DeliveryProviderCode.WB: "Wildberries",
 }
 
 ADDON_CHARGE_MODE_LABELS: dict[AddonChargeMode, str] = {

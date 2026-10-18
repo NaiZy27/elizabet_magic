@@ -17,13 +17,21 @@ from sqlalchemy.orm import selectinload
 
 from core.clock import now_utc
 from core.db import folded
-from core.enums import CancelReason, OrderEventType, OrderStatus
+from core.enums import (
+    CancelReason,
+    DeliveryProviderCode,
+    OrderEventType,
+    OrderStatus,
+    ShipmentStatus,
+)
 from core.errors import DomainError, NotFoundError
 from core.models import Customer, Order, OrderItem, Payment, Shipment
 from core.services import board as board_service
+from core.services import delivery as delivery_service
 from core.services import orders as orders_service
 from core.services import receipts as receipts_service
 from core.services import settings as settings_service
+from core.services import shipments as shipments_service
 from web.security import CurrentAdmin, CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
 
@@ -114,8 +122,19 @@ async def order_detail(
         ),
     )
     receipts = await receipts_service.list_for_order(session, order_id)
-    shipments = await session.scalars(
-        select(Shipment).where(Shipment.order_id == order_id).order_by(Shipment.created_at.desc()),
+    shipments = list(
+        await session.scalars(
+            select(Shipment)
+            .where(Shipment.order_id == order_id)
+            .order_by(Shipment.created_at.desc()),
+        ),
+    )
+    # Отправление СДЭК создаётся само на «Готов»; кнопка — чтобы повторить после ошибки.
+    can_create_shipment = (
+        order.delivery_provider == DeliveryProviderCode.CDEK
+        and delivery_service.is_automatic(DeliveryProviderCode.CDEK)
+        and order.status in {OrderStatus.READY, OrderStatus.SHIPPED}
+        and all(shipment.status == ShipmentStatus.CANCELLED for shipment in shipments)
     )
 
     calendar = await settings_service.get_working_calendar(session)
@@ -140,7 +159,8 @@ async def order_detail(
             "events": events,
             "payments": payments,
             "receipts": receipts,
-            "shipments": list(shipments),
+            "shipments": shipments,
+            "can_create_shipment": can_create_shipment,
             "ready_date": ready_date,
             "is_late": board_service.is_late(ready_date, order.promised_ready_date)
             if ready_date
@@ -328,6 +348,28 @@ async def cancel_order(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=error.message,
         ) from error
+    return _back_to_order(order_id)
+
+
+@router.post("/{order_id}/shipment")
+async def create_shipment(
+    request: Request,
+    order_id: int,
+    session: DbSession,
+    admin: CurrentAdmin,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    """Создать отправление СДЭК вручную — если автоматическое не получилось."""
+    verify_csrf(request, csrf)
+    order = await _get_order(session, order_id)
+    if order.delivery_provider != DeliveryProviderCode.CDEK or not delivery_service.is_automatic(
+        DeliveryProviderCode.CDEK,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="СДЭК для этого заказа не подключён по API",
+        )
+    shipments_service.schedule_create(session, order)
     return _back_to_order(order_id)
 
 
