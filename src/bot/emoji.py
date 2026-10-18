@@ -14,21 +14,33 @@ PROVIDER_EMOJI: dict[DeliveryProviderCode, tuple[str, str]] = {
     DeliveryProviderCode.YANDEX: ("5208863395159231604", "🛍"),
 }
 
+#: Службы без премиум-эмодзи (их id пока не подобраны) — обычный эмодзи.
+PLAIN_EMOJI: dict[DeliveryProviderCode, str] = {
+    DeliveryProviderCode.OZON: "🔵",
+    DeliveryProviderCode.WB: "🟣",
+}
+
 _DEFAULT = "📍"
 
 
 def provider_icon(code: str | DeliveryProviderCode | None) -> str:
     """Тег премиум-эмодзи службы для HTML-текста сообщения."""
     try:
-        emoji_id, fallback = PROVIDER_EMOJI[DeliveryProviderCode(code)]
-    except (KeyError, ValueError):
+        provider = DeliveryProviderCode(code)
+    except ValueError:
         return _DEFAULT
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    if provider in PROVIDER_EMOJI:
+        emoji_id, fallback = PROVIDER_EMOJI[provider]
+        return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    return PLAIN_EMOJI.get(provider, _DEFAULT)
 
 
 def provider_plain(code: str | DeliveryProviderCode | None) -> str:
     """Обычный эмодзи службы — для подписей кнопок, где HTML не работает."""
     try:
-        return PROVIDER_EMOJI[DeliveryProviderCode(code)][1]
-    except (KeyError, ValueError):
+        provider = DeliveryProviderCode(code)
+    except ValueError:
         return _DEFAULT
+    if provider in PROVIDER_EMOJI:
+        return PROVIDER_EMOJI[provider][1]
+    return PLAIN_EMOJI.get(provider, _DEFAULT)

@@ -27,7 +27,7 @@ from core.enums import MessageTemplateKey, OrderEventType, OrderStatus
 from core.errors import NotFoundError
 from core.models import Customer, Order
 from core.money import format_rubles
-from core.services import notifications, orders
+from core.services import notifications, orders, shipments
 from worker.broker import broker
 from worker.telegram import get_bot
 
@@ -129,14 +129,12 @@ async def notify_owner(order_id: int) -> None:
         except NotFoundError:
             return
 
-        snapshot = order.pickup_snapshot or {}
         lines = [
             f"<b>Новый заказ {order.admin_label}</b>",
             "",
             notifications.describe_items(order),
             "",
             f"Сумма: {format_rubles(order.total_kopecks)}",
-            f"Город: {snapshot.get('city', '—')}",
         ]
         if order.video_box_count:
             lines.append(f"🎥 Снять видео: {order.video_box_count} из {order.box_count}")
@@ -144,6 +142,9 @@ async def notify_owner(order_id: int) -> None:
             lines.append("✍️ Есть пожелания клиента")
         if order.promised_ready_date:
             lines.append(f"Обещали к {format_date(order.promised_ready_date)}")
+        if order.pickup_snapshot:
+            lines.append("")
+            lines.extend(shipments.owner_delivery_lines(order))
         lines.append("")
         lines.append(f"{settings.admin_base_url}/admin/orders/{order.id}")
         text = "\n".join(lines)

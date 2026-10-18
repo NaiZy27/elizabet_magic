@@ -394,6 +394,7 @@ async def _requote_delivery(
                 session,
                 point=point,
                 parcel=delivery.parcel_for_order(order),
+                declared_kopecks=order.subtotal_kopecks,
             )
             order.delivery_kopecks = quote.price_kopecks
     order.total_kopecks = order.subtotal_kopecks + order.delivery_kopecks
@@ -620,6 +621,11 @@ async def change_status(
         key = template_key or STATUS_TEMPLATES.get(new_status)
         if key is not None:
             notifications.schedule_customer_notification(session, order, key)
+    if new_status == OrderStatus.READY:
+        # Локальный импорт: shipments сам двигает заказ по этапам через этот модуль.
+        from core.services import shipments
+
+        shipments.on_ready(session, order)
     return order
 
 
@@ -680,6 +686,17 @@ async def cancel(
         payload={"reason": comment or reason.value},
     )
     notifications.schedule_strip_buttons(session, order)
+
+    from core.services import shipments
+
+    shipment = await shipments.active_shipment(session, order.id)
+    if shipment is not None:
+        notifications.schedule_owner_text(
+            session,
+            f"⚠️ Заказ {order.admin_label} отменён, а отправление "
+            f"{shipment.track_number or shipment.external_id} в службе доставки осталось. "
+            "Если посылку ещё не сдали — удалите его в кабинете службы.",
+        )
     return order
 
 

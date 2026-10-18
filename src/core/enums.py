@@ -139,6 +139,8 @@ class ProviderEnvironment(StrEnum):
 class DeliveryProviderCode(StrEnum):
     CDEK = "cdek"
     YANDEX = "yandex"
+    OZON = "ozon"
+    WB = "wb"
 
 
 class ShipmentStatus(StrEnum):

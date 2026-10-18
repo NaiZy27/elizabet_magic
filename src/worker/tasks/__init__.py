@@ -4,6 +4,6 @@
 (`taskiq worker worker.broker:broker worker.tasks`).
 """
 
-from worker.tasks import maintenance, notify, payments
+from worker.tasks import maintenance, notify, payments, shipments
 
-__all__ = ["maintenance", "notify", "payments"]
+__all__ = ["maintenance", "notify", "payments", "shipments"]

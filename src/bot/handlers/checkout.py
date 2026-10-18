@@ -699,7 +699,9 @@ async def _delivery_terms(session: AsyncSession) -> str:
     names = " · ".join(f"{provider_icon(provider.code)} {provider.name}" for provider in providers)
     fixed = await delivery.fixed_price_kopecks(session)
     if fixed is None:
-        return names
+        # Хоть одна служба считает по тарифу — цена зависит от пункта.
+        price = "Стоимость доставки покажем, когда выберете пункт, — она войдёт в чек."
+        return f"{names}\n{price}" if names else price
     price = f"Доставка — {format_rubles(fixed)}, фиксированная, входит в чек."
     return f"{names}\n{price}" if names else price
 
@@ -865,7 +867,7 @@ async def choose_pickup_point(
     except DomainError as error:
         await callback.answer(error.message, show_alert=True)
         return
-    await callback.answer()
+    await callback.answer(f"Доставка до этого пункта — {format_rubles(order.delivery_kopecks)}")
 
     await _leave_reply_step(callback, state)
     # Отдельную карту не шлём: оформление идёт в одном сообщении, адрес виден в итоге.

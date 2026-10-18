@@ -57,9 +57,17 @@
       {% for shipment in shipments %}
         <div class="kv"><span>Отправление</span>
           <span><span class="status">{{ shipment.status.value | shipment_status }}</span>
-            {% if shipment.track_number %} <code>{{ shipment.track_number }}</code>{% endif %}</span>
+            {% if shipment.track_number %} <code>{{ shipment.track_number }}</code>{% endif %}
+            {% if shipment.status_raw %}<br><span class="muted small">{{ shipment.status_raw }}</span>{% endif %}</span>
         </div>
       {% endfor %}
+      {% if can_create_shipment %}
+        <form method="post" action="/admin/orders/{{ order.id }}/shipment" style="margin-top:12px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="secondary small" type="submit">Создать отправление СДЭК</button>
+          <span class="helptext">Номер придёт вам в бот через несколько секунд.</span>
+        </form>
+      {% endif %}
     </section>
 
     {% if owner %}
