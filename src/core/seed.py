@@ -122,13 +122,12 @@ async def seed_products(session: AsyncSession) -> int:
 async def seed_delivery_providers(session: AsyncSession) -> int:
     existing = set(await session.scalars(select(DeliveryProvider.code)))
     added = 0
-    # Службы заведены выключенными: включаем ту, с которой заключён договор (СДЭК)
-    # или у которой загружены пункты выдачи (Яндекс и WB — отправка вручную).
-    # Ozon появится вместе с ключами «Ozon Доставки для бизнеса».
+    # Все службы ручные: отправку владелица оформляет сама в приложении службы.
+    # Заведены выключенными — включаются в панели, когда загружены их пункты выдачи.
     for code, name in (
         (DeliveryProviderCode.CDEK, "СДЭК"),
         (DeliveryProviderCode.YANDEX, "Яндекс Доставка"),
-        (DeliveryProviderCode.WB, "Wildberries"),
+        (DeliveryProviderCode.OZON, "Ozon"),
     ):
         if code in existing:
             continue
@@ -137,7 +136,8 @@ async def seed_delivery_providers(session: AsyncSession) -> int:
                 code=code,
                 name=name,
                 is_enabled=False,
-                fallback_price_kopecks=30000,
+                moscow_price_kopecks=50000,
+                region_price_kopecks=50000,
             ),
         )
         added += 1

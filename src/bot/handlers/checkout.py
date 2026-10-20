@@ -23,6 +23,7 @@ from bot import rich, ui
 from bot.callbacks import (
     CartCB,
     ConfirmCB,
+    ManualPickupCB,
     MenuCB,
     PickupCB,
     PickupPageCB,
@@ -33,7 +34,7 @@ from bot.callbacks import (
     StepCB,
     VideoCB,
 )
-from bot.emoji import provider_icon
+from bot.emoji import provider_icon, provider_price_line
 from bot.keyboards import checkout as kb
 from bot.keyboards.common import (
     BTN_CANCEL,
@@ -54,6 +55,8 @@ from bot.states import (
     EDITING,
     FAVORITE_COLORS,
     HELPER_MESSAGE_ID,
+    MANUAL_MOSCOW,
+    MANUAL_PROVIDER,
     ORDER_ID,
     PICKUP_LATITUDE,
     PICKUP_LONGITUDE,
@@ -68,7 +71,7 @@ from bot.states import (
 )
 from core.clock import format_date
 from core.config import get_settings
-from core.enums import MessageTemplateKey
+from core.enums import DeliveryProviderCode, MessageTemplateKey
 from core.errors import DomainError
 from core.models import Customer, Order, OrderItem
 from core.money import format_rubles
@@ -266,14 +269,18 @@ async def show_product_step(
         for product in products
     ]
     data = await state.get_data()
+    box_number = data.get(BOX_NUMBER) or 1
+    # Повышенное ожидание — предупреждаем в самом начале, до выбора бокса.
+    notice = await _slow_notice(session) if box_number == 1 else None
     await state.set_state(Checkout.product)
     await ui.clear_photo(event, state)
     await ui.show(
         event,
         state,
         text=ui.compose(
-            ui.box_header(data.get(BOX_NUMBER) or 1, 1),
+            ui.box_header(box_number, 1),
             "Выберите бокс",
+            notice or "",
         ),
         keyboard=kb.products(rows, back_to_cart=has_items),
     )
@@ -694,16 +701,11 @@ async def show_pickup_search_step(
 
 
 async def _delivery_terms(session: AsyncSession) -> str:
-    """«📦 СДЭК · 🛍 Яндекс Доставка — 500 ₽, фиксированная, входит в чек»."""
+    """Службы с ценами: «📦 СДЭК — по Москве 300 ₽, по России 500 ₽» и так далее."""
     providers = await delivery.enabled_providers(session)
-    names = " · ".join(f"{provider_icon(provider.code)} {provider.name}" for provider in providers)
-    fixed = await delivery.fixed_price_kopecks(session)
-    if fixed is None:
-        # Хоть одна служба считает по тарифу — цена зависит от пункта.
-        price = "Стоимость доставки покажем, когда выберете пункт, — она войдёт в чек."
-        return f"{names}\n{price}" if names else price
-    price = f"Доставка — {format_rubles(fixed)}, фиксированная, входит в чек."
-    return f"{names}\n{price}" if names else price
+    lines = [provider_price_line(provider) for provider in providers]
+    lines.append("Стоимость доставки входит в чек.")
+    return "\n".join(lines)
 
 
 @router.message(Checkout.pickup, F.location)
@@ -872,6 +874,127 @@ async def choose_pickup_point(
     await _leave_reply_step(callback, state)
     # Отдельную карту не шлём: оформление идёт в одном сообщении, адрес виден в итоге.
     await _after_pickup(callback, state, session, order)
+
+
+# --- пункт, которого нет в списке: адрес вручную ---
+
+
+@router.callback_query(ManualPickupCB.filter(F.step == "provider"))
+async def manual_pickup_provider(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    """Клиент не нашёл свой пункт в списке — сначала какой службой везти."""
+    if await _draft(callback, state, session, customer) is None:
+        return
+    await callback.answer()
+    await _leave_reply_step(callback, state)
+    providers = await delivery.enabled_providers(session)
+    await state.set_state(Checkout.pickup)
+    await ui.show(
+        callback,
+        state,
+        text=ui.compose(
+            None,
+            "Какой службой доставить?",
+            "Выберите службу, а потом напишите адрес её пункта выдачи — "
+            "мы найдём его и отправим туда бокс.",
+        ),
+        keyboard=kb.manual_providers(providers),
+    )
+
+
+@router.callback_query(ManualPickupCB.filter(F.step == "area"))
+async def manual_pickup_area(
+    callback: CallbackQuery,
+    callback_data: ManualPickupCB,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    """Пункт в Москве или в другом городе — от этого зависит цена доставки."""
+    if await _draft(callback, state, session, customer) is None:
+        return
+    try:
+        provider = await delivery.get_provider(
+            session, DeliveryProviderCode(callback_data.provider)
+        )
+    except (DomainError, ValueError):
+        await callback.answer("Эта служба сейчас недоступна", show_alert=True)
+        return
+    await callback.answer()
+    await ui.show(
+        callback,
+        state,
+        text=ui.compose(None, f"{provider.name}: где пункт выдачи?"),
+        keyboard=kb.manual_area(provider),
+    )
+
+
+@router.callback_query(ManualPickupCB.filter(F.step == "address"))
+async def manual_pickup_address_step(
+    callback: CallbackQuery,
+    callback_data: ManualPickupCB,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    if await _draft(callback, state, session, customer) is None:
+        return
+    await callback.answer()
+    await state.update_data(
+        {MANUAL_PROVIDER: callback_data.provider, MANUAL_MOSCOW: callback_data.moscow},
+    )
+    await state.set_state(Checkout.pickup_manual)
+    example = "Москва, ул. Тверская, 7" if callback_data.moscow else "Казань, ул. Баумана, 38"
+    await ui.show(
+        callback,
+        state,
+        text=ui.compose(
+            None,
+            "Напишите адрес пункта выдачи",
+            f"Город, улица и дом — например, «{example}».",
+        ),
+        keyboard=kb.manual_back(callback_data.provider),
+    )
+
+
+@router.message(Checkout.pickup_manual, F.text, NOT_MENU)
+async def receive_manual_address(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    order = await _draft(message, state, session, customer)
+    if order is None:
+        return
+    data = await state.get_data()
+    await ui.consume(message, state)
+    try:
+        await orders.set_manual_pickup(
+            session,
+            order,
+            DeliveryProviderCode(data.get(MANUAL_PROVIDER) or ""),
+            in_moscow=bool(data.get(MANUAL_MOSCOW)),
+            address=message.text or "",
+        )
+    except (DomainError, ValueError) as error:
+        await ui.show(
+            message,
+            state,
+            text=ui.compose(
+                None,
+                "Напишите адрес пункта выдачи",
+                getattr(error, "message", "Выберите службу заново."),
+            ),
+            keyboard=kb.manual_back(str(data.get(MANUAL_PROVIDER) or "")),
+        )
+        return
+    await state.set_state(Checkout.pickup)
+    await _after_pickup(message, state, session, order)
 
 
 async def _after_pickup(
@@ -1145,10 +1268,24 @@ async def show_summary(
     await ui.clear_photo(event, state)
     calendar = await settings.get_working_calendar(session)
     spot = await board.estimate_spot(session, order, calendar=calendar)
-    await ui.show(event, state, text=summary_text(order, spot), keyboard=kb.summary())
+    text = summary_text(order, spot, notice=await _slow_notice(session))
+    await ui.show(event, state, text=text, keyboard=kb.summary())
 
 
-def summary_text(order: Order, spot: board.QueueSpot | None = None) -> str:
+async def _slow_notice(session: AsyncSession) -> str | None:
+    """«⏳ Сейчас у нас много заказов…» — если владелица включила повышенное ожидание."""
+    intake_settings = await settings.get_intake(session)
+    if not intake_settings.slow_mode or not intake_settings.slow_message.strip():
+        return None
+    return f"⏳ {escape(intake_settings.slow_message.strip())}"
+
+
+def summary_text(
+    order: Order,
+    spot: board.QueueSpot | None = None,
+    *,
+    notice: str | None = None,
+) -> str:
     snapshot = order.pickup_snapshot or {}
     lines = [
         describe_boxes(order),
@@ -1167,6 +1304,8 @@ def summary_text(order: Order, spot: board.QueueSpot | None = None) -> str:
                 f"🗓 Место в очереди: {spot.position} · соберём к {format_date(spot.ready_date)}",
             ],
         )
+    if notice:
+        lines.extend(["", notice])
     return ui.compose(None, "Проверьте заказ", "\n".join(lines))
 
 

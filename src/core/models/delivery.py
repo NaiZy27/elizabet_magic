@@ -42,7 +42,10 @@ class DeliveryProvider(IdMixin, TimestampMixin, Base):
     """Служба доставки и её настройки. Включается и выключается из админки."""
 
     __tablename__ = "delivery_providers"
-    __table_args__ = (non_negative("fallback_price_kopecks"),)
+    __table_args__ = (
+        non_negative("moscow_price_kopecks"),
+        non_negative("region_price_kopecks"),
+    )
 
     code: Mapped[DeliveryProviderCode] = mapped_column(
         enum_type(DeliveryProviderCode, "delivery_provider_code"),
@@ -50,8 +53,10 @@ class DeliveryProvider(IdMixin, TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(64))
     is_enabled: Mapped[bool] = mapped_column(default=False, server_default="false")
-    #: Цена, по которой считаем доставку, если API службы недоступно.
-    fallback_price_kopecks: Mapped[int] = money(server_default="30000")
+    #: Цена доставки до пункта в Москве и до пункта в остальной России. Задаётся в
+    #: панели, у каждой службы своя; клиент платит её в составе заказа.
+    moscow_price_kopecks: Mapped[int] = money(server_default="50000")
+    region_price_kopecks: Mapped[int] = money(server_default="50000")
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     #: Когда последний раз успешно обновился справочник ПВЗ.
     pickup_points_synced_at: Mapped[dt.datetime | None] = mapped_column(
@@ -132,11 +137,10 @@ def _fill_search_text(_mapper, _connection, point: PickupPoint) -> None:
 
 
 class Shipment(IdMixin, TimestampMixin, Base):
-    """Отправление у службы доставки, созданное через её API (сейчас — СДЭК).
+    """Отправление, созданное через API службы.
 
-    Статус посылки ведёт за собой этап заказа: принята службой — «Передан в
-    доставку», в пункте выдачи — «Доставлен в ПВЗ», вручена — «Получен»
-    (см. core.services.shipments). У ручных служб отправлений здесь нет.
+    Сейчас все службы ручные, и записи здесь не создаются: таблица остаётся на
+    случай, если интеграцию со службой когда-нибудь вернут.
     """
 
     __tablename__ = "shipments"

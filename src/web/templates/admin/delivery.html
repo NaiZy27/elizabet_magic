@@ -23,9 +23,14 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="form-grid">
         <div class="form-row">
-          <label>Резервная цена, ₽</label>
-          <input name="fallback_price" inputmode="decimal" value="{{ provider.fallback_price_kopecks | rubles_input }}" required>
-          <span class="helptext">Если расчёт службы недоступен.</span>
+          <label for="moscow_price_{{ provider.id }}">По Москве, ₽</label>
+          <input id="moscow_price_{{ provider.id }}" name="moscow_price" inputmode="decimal" value="{{ provider.moscow_price_kopecks | rubles_input }}" required>
+          <span class="helptext">Пункт выдачи в Москве.</span>
+        </div>
+        <div class="form-row">
+          <label for="region_price_{{ provider.id }}">По России, ₽</label>
+          <input id="region_price_{{ provider.id }}" name="region_price" inputmode="decimal" value="{{ provider.region_price_kopecks | rubles_input }}" required>
+          <span class="helptext">Пункт выдачи за пределами Москвы.</span>
         </div>
       </div>
       <div class="form-actions">

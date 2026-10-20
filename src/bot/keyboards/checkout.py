@@ -14,6 +14,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.callbacks import (
     CartCB,
+    ManualPickupCB,
     OrderCB,
     PickupCB,
     PickupPageCB,
@@ -33,7 +34,7 @@ from bot.keyboards.common import (
     cancel_button,
     skip_button,
 )
-from core.models import OrderItem, PickupPoint, Product
+from core.models import DeliveryProvider, OrderItem, PickupPoint, Product
 from core.money import format_rubles
 from core.services.delivery import PICKUP_POINTS_PAGE_SIZE
 from core.text import spoons_phrase, truncate
@@ -126,10 +127,56 @@ def cart(items: Sequence[OrderItem], *, can_add: bool) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def _manual_button() -> InlineKeyboardButton:
+    return button("✍️ Ввести адрес пункта вручную", ManualPickupCB(step="provider").pack())
+
+
 def pickup_search(*, back_step: str = "cart") -> InlineKeyboardMarkup:
     """Шаг поиска пункта: геопозиция — кнопкой под полем ввода, адрес — текстом."""
     builder = InlineKeyboardBuilder()
+    builder.row(_manual_button())
     builder.row(back_button(back_step))
+    return builder.as_markup()
+
+
+def manual_providers(providers: Sequence[DeliveryProvider]) -> InlineKeyboardMarkup:
+    """Ручной ввод адреса: какой службой везти."""
+    builder = InlineKeyboardBuilder()
+    for provider in providers:
+        builder.row(
+            button(
+                f"{provider_plain(provider.code)} {provider.name}",
+                ManualPickupCB(step="area", provider=str(provider.code)).pack(),
+            ),
+        )
+    builder.row(back_button("pickup_search"))
+    return builder.as_markup()
+
+
+def manual_back(provider: str) -> InlineKeyboardMarkup:
+    """С шага ввода адреса — назад к выбору «в Москве или нет»."""
+    builder = InlineKeyboardBuilder()
+    builder.row(button("← Назад", ManualPickupCB(step="area", provider=provider).pack()))
+    return builder.as_markup()
+
+
+def manual_area(provider: DeliveryProvider) -> InlineKeyboardMarkup:
+    """Ручной ввод адреса: пункт в Москве или в другом городе — от этого зависит цена."""
+    code = str(provider.code)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        button(
+            f"В Москве — {format_rubles(provider.moscow_price_kopecks)}",
+            ManualPickupCB(step="address", provider=code, moscow=True).pack(),
+        ),
+    )
+    builder.row(
+        button(
+            f"В другом городе — {format_rubles(provider.region_price_kopecks)}",
+            ManualPickupCB(step="address", provider=code, moscow=False).pack(),
+        ),
+    )
+    builder.row(button("← Назад", ManualPickupCB(step="provider").pack()))
     return builder.as_markup()
 
 
@@ -161,6 +208,7 @@ def pickup_points(
     if navigation:
         builder.row(*navigation)
 
+    builder.row(_manual_button())
     builder.row(back_button("pickup_search"))
     return builder.as_markup()
 

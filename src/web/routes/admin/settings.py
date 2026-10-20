@@ -207,9 +207,11 @@ async def save_intake(
     resume_on: Annotated[str, Form()] = "",
     queue_limit: Annotated[str, Form()] = "",
     extra_lead_days: Annotated[int, Form(ge=0, le=60)] = 0,
+    slow_mode: Annotated[bool, Form()] = False,
+    slow_message: Annotated[str, Form()] = "",
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
-    """Приём заказов: пауза, лимит одновременно в работе и запас по срокам."""
+    """Приём заказов: пауза, лимит, запас по срокам и повышенное ожидание."""
     verify_csrf(request, csrf)
 
     resume_date: dt.date | None = None
@@ -236,6 +238,11 @@ async def save_intake(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Напишите, что показать клиентам, пока приём закрыт",
         )
+    if slow_mode and not slow_message.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Напишите, что сказать клиентам о повышенном ожидании",
+        )
 
     await settings_service.write_setting(
         session,
@@ -246,6 +253,8 @@ async def save_intake(
             resume_on=resume_date,
             queue_limit=limit,
             extra_lead_days=extra_lead_days,
+            slow_mode=slow_mode,
+            slow_message=slow_message.strip() or IntakeSettings().slow_message,
         ),
     )
     return _back()

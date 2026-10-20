@@ -7,6 +7,8 @@ Telegram покажет обычный эмодзи, указанный внут
 from __future__ import annotations
 
 from core.enums import DeliveryProviderCode
+from core.models import DeliveryProvider
+from core.money import format_rubles
 
 #: Служба -> (id премиум-эмодзи, обычный эмодзи на замену).
 PROVIDER_EMOJI: dict[DeliveryProviderCode, tuple[str, str]] = {
@@ -17,7 +19,6 @@ PROVIDER_EMOJI: dict[DeliveryProviderCode, tuple[str, str]] = {
 #: Службы без премиум-эмодзи (их id пока не подобраны) — обычный эмодзи.
 PLAIN_EMOJI: dict[DeliveryProviderCode, str] = {
     DeliveryProviderCode.OZON: "🔵",
-    DeliveryProviderCode.WB: "🟣",
 }
 
 _DEFAULT = "📍"
@@ -44,3 +45,13 @@ def provider_plain(code: str | DeliveryProviderCode | None) -> str:
     if provider in PROVIDER_EMOJI:
         return PROVIDER_EMOJI[provider][1]
     return PLAIN_EMOJI.get(provider, _DEFAULT)
+
+
+def provider_price_line(provider: DeliveryProvider) -> str:
+    """«📦 СДЭК — по Москве 300 ₽, по России 500 ₽» (или одна цена, если они равны)."""
+    moscow, region = provider.moscow_price_kopecks, provider.region_price_kopecks
+    if moscow == region:
+        price = format_rubles(region)
+    else:
+        price = f"по Москве {format_rubles(moscow)}, по России {format_rubles(region)}"
+    return f"{provider_icon(provider.code)} {provider.name} — {price}"

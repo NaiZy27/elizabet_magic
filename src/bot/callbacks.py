@@ -39,6 +39,17 @@ class NearestPointCB(CallbackData, prefix="np"):
     point_id: int
 
 
+class ManualPickupCB(CallbackData, prefix="mp"):
+    """Пункт, которого нет в списке: клиент выбирает службу, город и пишет адрес сам.
+
+    step: «provider» — выбрать службу, «area» — в Москве или нет, «address» — ввести адрес.
+    """
+
+    step: str
+    provider: str = ""
+    moscow: bool = False
+
+
 class PickupPageCB(CallbackData, prefix="pvp"):
     """Листание списка пунктов выдачи."""
 

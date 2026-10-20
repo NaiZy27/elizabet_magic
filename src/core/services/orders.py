@@ -26,6 +26,7 @@ from core.enums import (
     QUEUE_STATUSES,
     STATUS_TEMPLATES,
     CancelReason,
+    DeliveryProviderCode,
     MessageTemplateKey,
     OrderEventType,
     OrderStatus,
@@ -257,6 +258,46 @@ async def set_pickup_point(session: AsyncSession, order: Order, point: PickupPoi
     return order
 
 
+#: Адрес пункта, который клиент ввёл сам: короче — явно не адрес.
+MANUAL_ADDRESS_MIN_LENGTH = 8
+
+
+async def set_manual_pickup(
+    session: AsyncSession,
+    order: Order,
+    provider_code: DeliveryProviderCode,
+    *,
+    in_moscow: bool,
+    address: str,
+) -> Order:
+    """Пункт выдачи, которого нет в справочнике: клиент сам написал его адрес.
+
+    Владелица увидит адрес как есть и найдёт пункт в приложении службы. Цена — как у
+    службы по Москве или по России: город клиент выбрал кнопкой, адрес — текстом.
+    """
+    _ensure_draft(order)
+    address = " ".join(address.split())
+    if len(address) < MANUAL_ADDRESS_MIN_LENGTH:
+        raise ValidationError("Напишите адрес пункта целиком: город, улица и дом")
+    if provider_code not in await delivery.enabled_codes(session):
+        raise ValidationError("Эта служба сейчас недоступна — выберите другую")
+    provider = await delivery.get_provider(session, provider_code)
+    order.pickup_point_id = None
+    order.delivery_provider = provider_code
+    order.pickup_snapshot = {
+        "provider": str(provider_code),
+        "provider_name": provider.name,
+        "external_id": None,
+        "name": "Адрес указал клиент",
+        "city": "Москва" if in_moscow else "",
+        "address": address[:500],
+        "working_hours": "",
+        "manual": True,
+    }
+    await _requote_delivery(session, order)
+    return order
+
+
 def is_valid_email(value: str | None) -> bool:
     """Проверка «на опечатку», а не по RFC: одна @, точка в домене, без пробелов."""
     email = (value or "").strip()
@@ -378,7 +419,17 @@ async def _requote_delivery(
 ) -> delivery.DeliveryQuote | None:
     """Доставка зависит от веса посылки, поэтому считается после состава."""
     quote: delivery.DeliveryQuote | None = None
-    if order.pickup_point_id is None or not order.items:
+    snapshot = order.pickup_snapshot or {}
+    if order.items and order.pickup_point_id is None and snapshot.get("manual"):
+        # Адрес клиент ввёл сам: цена службы по Москве или по России.
+        if order.delivery_provider not in await delivery.enabled_codes(session):
+            order.pickup_snapshot = None
+            order.delivery_provider = None
+            order.delivery_kopecks = 0
+        else:
+            provider = await delivery.get_provider(session, order.delivery_provider)
+            order.delivery_kopecks = delivery.price_for_city(provider, snapshot.get("city"))
+    elif order.pickup_point_id is None or not order.items:
         order.delivery_kopecks = 0
     else:
         point = await session.get(PickupPoint, order.pickup_point_id)
@@ -390,12 +441,7 @@ async def _requote_delivery(
             order.delivery_provider = None
             order.delivery_kopecks = 0
         else:
-            quote = await delivery.quote(
-                session,
-                point=point,
-                parcel=delivery.parcel_for_order(order),
-                declared_kopecks=order.subtotal_kopecks,
-            )
+            quote = await delivery.quote(session, point=point)
             order.delivery_kopecks = quote.price_kopecks
     order.total_kopecks = order.subtotal_kopecks + order.delivery_kopecks
     await session.flush()
@@ -422,15 +468,7 @@ async def _apply_pickup_point(session: AsyncSession, order: Order, point: Pickup
         "address": point.address,
         "working_hours": point.working_hours or "",
     }
-    quote = await _requote_delivery(session, order)
-    if quote is not None and quote.is_fallback:
-        await log_event(
-            session,
-            order,
-            OrderEventType.DELIVERY_PRICE_FALLBACK,
-            payload={"delivery_kopecks": quote.price_kopecks},
-            actor=ACTOR_SYSTEM,
-        )
+    await _requote_delivery(session, order)
 
 
 async def is_point_available(session: AsyncSession, point: PickupPoint) -> bool:
@@ -686,17 +724,6 @@ async def cancel(
         payload={"reason": comment or reason.value},
     )
     notifications.schedule_strip_buttons(session, order)
-
-    from core.services import shipments
-
-    shipment = await shipments.active_shipment(session, order.id)
-    if shipment is not None:
-        notifications.schedule_owner_text(
-            session,
-            f"⚠️ Заказ {order.admin_label} отменён, а отправление "
-            f"{shipment.track_number or shipment.external_id} в службе доставки осталось. "
-            "Если посылку ещё не сдали — удалите его в кабинете службы.",
-        )
     return order
 
 
@@ -831,7 +858,8 @@ def _check_ready_to_submit(order: Order) -> None:
     """Всё ли заполнено, чтобы принять заказ."""
     if not order.items:
         raise ValidationError("Добавьте хотя бы один бокс")
-    if order.pickup_point_id is None or not order.pickup_snapshot:
+    snapshot = order.pickup_snapshot or {}
+    if not snapshot or (order.pickup_point_id is None and not snapshot.get("manual")):
         raise ValidationError("Выберите пункт выдачи")
     if not order.recipient_name or not order.recipient_phone:
         raise ValidationError("Укажите имя и телефон получателя")
