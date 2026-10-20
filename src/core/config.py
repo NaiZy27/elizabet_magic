@@ -100,51 +100,6 @@ class RobokassaSettings(BaseSettings):
     result_url_allowed_ips: tuple[str, ...] = ("185.59.216.65", "185.59.217.65")
 
 
-class CdekSettings(BaseSettings):
-    """СДЭК API v2.
-
-    Пока ключей нет, СДЭК работает как ручная служба: цена — резервная из панели,
-    данные для отправки приходят владелице в бот. С ключами и кодом пункта сдачи
-    цена считается по тарифу, а отправление создаётся само, когда заказ «Готов».
-    """
-
-    model_config = _BASE_CONFIG | SettingsConfigDict(env_prefix="CDEK_")
-
-    client_id: str = ""
-    client_secret: SecretStr = SecretStr("")
-    #: Тестовая среда — api.edu.cdek.ru, боевая — https://api.cdek.ru/v2.
-    base_url: str = "https://api.edu.cdek.ru/v2"
-    #: Код ПВЗ, куда владелица сдаёт посылки (схема «склад-склад»), например MOS4.
-    shipment_point: str = ""
-    #: 136 — «Посылка склад-склад», работает с типом заказа «интернет-магазин».
-    tariff_code: int = 136
-    #: Секретная часть адреса вебхука: СДЭК вебхуки не подписывает, поэтому адрес
-    #: знает только он, а по самому уведомлению мы всё равно перезапрашиваем заказ.
-    webhook_secret: SecretStr = SecretStr("")
-
-    @property
-    def is_test(self) -> bool:
-        """Тестовая среда СДЭК (api.edu.cdek.ru) — у неё общие на всех ключи."""
-        return "edu.cdek" in self.base_url
-
-    @property
-    def is_configured(self) -> bool:
-        """Можно ли работать по API: есть ключи и пункт, куда сдавать посылки."""
-        return bool(
-            self.client_id and self.client_secret.get_secret_value() and self.shipment_point,
-        )
-
-
-class YandexDeliverySettings(BaseSettings):
-    """Яндекс Доставка, API «в другой день»."""
-
-    model_config = _BASE_CONFIG | SettingsConfigDict(env_prefix="YANDEX_")
-
-    delivery_token: SecretStr = SecretStr("")
-    delivery_base_url: str = "https://b2b.taxi.tst.yandex.net"
-    dropoff_station_id: str = ""
-
-
 class Settings(BaseSettings):
     """Корневые настройки."""
 
@@ -177,8 +132,6 @@ class Settings(BaseSettings):
     owner: OwnerSettings = Field(default_factory=OwnerSettings)
     admin: AdminSettings = Field(default_factory=AdminSettings)
     robokassa: RobokassaSettings = Field(default_factory=RobokassaSettings)
-    cdek: CdekSettings = Field(default_factory=CdekSettings)
-    yandex: YandexDeliverySettings = Field(default_factory=YandexDeliverySettings)
 
     @field_validator("database_url")
     @classmethod

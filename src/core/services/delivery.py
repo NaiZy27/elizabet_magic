@@ -1,13 +1,12 @@
 """Доставка: поиск пунктов выдачи и стоимость.
 
-Пункты берутся из кэша `pickup_points`, который обновляется фоновой задачей: бот не
-ходит в API службы, пока клиент листает список. Стоимость считается через провайдера,
-а если API недоступно или служба ещё не подключена — по резервной цене из настроек.
+Пункты берутся из справочника `pickup_points`, который обновляется фоновой задачей.
+Стоимость — цена службы из панели: у каждой службы своя по Москве и по России.
+Отправку владелица оформляет сама (см. core.services.shipments).
 """
 
 from __future__ import annotations
 
-import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -15,14 +14,10 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_settings
 from core.enums import DeliveryProviderCode, ProviderEnvironment
-from core.errors import ExternalServiceError, NotFoundError
+from core.errors import NotFoundError
 from core.models import DeliveryProvider, Order, PickupPoint
-from core.services import cdek
-from core.text import search_words
-
-logger = logging.getLogger(__name__)
+from core.text import normalize_search, search_words
 
 #: Сколько пунктов показываем клиенту за раз.
 PICKUP_POINTS_PAGE_SIZE = 5
@@ -50,12 +45,8 @@ class DeliveryQuote:
     """Стоимость доставки до выбранного пункта."""
 
     price_kopecks: int
-    #: True, если цена взята из настроек, а не посчитана службой.
-    is_fallback: bool
     provider_code: DeliveryProviderCode
     provider_name: str
-    days_min: int | None = None
-    days_max: int | None = None
 
 
 #: Габариты по умолчанию, пока владелица не измерила упаковку (открытый вопрос ТЗ).
@@ -121,26 +112,14 @@ async def _visible_providers(
     return list(providers) if providers is not None else await enabled_codes(session)
 
 
-def is_automatic(code: DeliveryProviderCode | str | None) -> bool:
-    """Работает ли служба по API: сама считает цену и создаёт отправление.
-
-    Сейчас это СДЭК с ключами. Остальные службы (Яндекс, Wildberries, Ozon до ключей)
-    ручные: цена — резервная из панели, отправку владелица оформляет сама.
-    """
-    return code == DeliveryProviderCode.CDEK and get_settings().cdek.is_configured
+def is_moscow(city: str | None) -> bool:
+    """Пункт в Москве — для цены доставки «по Москве»."""
+    return normalize_search(city or "") == "москва"
 
 
-async def fixed_price_kopecks(session: AsyncSession) -> int | None:
-    """Единая цена доставки, если у всех включённых служб она одинаковая.
-
-    Цену называем клиенту заранее, только пока все службы ручные и резервная цена у
-    них одна (500 ₽). Если хоть одна считает по тарифу — цена зависит от пункта.
-    """
-    providers = await enabled_providers(session)
-    if any(is_automatic(provider.code) for provider in providers):
-        return None
-    prices = {provider.fallback_price_kopecks for provider in providers}
-    return prices.pop() if len(prices) == 1 else None
+def price_for_city(provider: DeliveryProvider, city: str | None) -> int:
+    """Цена службы до пункта в этом городе: по Москве или по России."""
+    return provider.moscow_price_kopecks if is_moscow(city) else provider.region_price_kopecks
 
 
 async def get_provider(
@@ -319,46 +298,12 @@ async def get_pickup_point(session: AsyncSession, point_id: int) -> PickupPoint:
     return point
 
 
-async def quote(
-    session: AsyncSession,
-    *,
-    point: PickupPoint,
-    parcel: Parcel,
-    declared_kopecks: int = 0,
-) -> DeliveryQuote:
-    """Стоимость доставки до пункта выдачи.
-
-    СДЭК с ключами считает по тарифу (с объявленной стоимостью — за неё СДЭК берёт
-    страховку). Ручные службы и СДЭК, который не ответил, — по резервной цене из
-    панели; заказ тогда помечается событием, чтобы владелица видела, что цена не
-    настоящая.
-    """
+async def quote(session: AsyncSession, *, point: PickupPoint) -> DeliveryQuote:
+    """Стоимость доставки до пункта: цена службы из панели — по Москве или по России."""
     code = DeliveryProviderCode(point.provider)
     provider = await get_provider(session, code)
-    if is_automatic(code):
-        try:
-            tariff = await cdek.calculate(
-                to_point=point.external_id,
-                weight_g=parcel.weight_g,
-                length_cm=parcel.length_cm,
-                width_cm=parcel.width_cm,
-                height_cm=parcel.height_cm,
-                declared_kopecks=declared_kopecks,
-            )
-        except ExternalServiceError as error:
-            logger.warning("СДЭК не посчитал доставку до %s: %s", point.external_id, error)
-        else:
-            return DeliveryQuote(
-                price_kopecks=tariff.price_kopecks,
-                is_fallback=False,
-                provider_code=code,
-                provider_name=provider.name,
-                days_min=tariff.days_min,
-                days_max=tariff.days_max,
-            )
     return DeliveryQuote(
-        price_kopecks=provider.fallback_price_kopecks,
-        is_fallback=True,
+        price_kopecks=price_for_city(provider, point.city),
         provider_code=code,
         provider_name=provider.name,
     )

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import ui
 from bot.callbacks import MenuCB
-from bot.emoji import provider_icon
+from bot.emoji import provider_price_line
 from bot.keyboards.common import (
     BTN_CONTACTS,
     BTN_DELIVERY,
@@ -128,9 +128,10 @@ async def show_prices(event: Event, session: AsyncSession) -> None:
         suffix = "за бокс" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
         blocks.append(f"\n{addon.name} — +{format_rubles(addon.price_kopecks)} {suffix}")
 
-    fixed = await delivery.fixed_price_kopecks(session)
-    if fixed is not None:
-        blocks.append(f"Доставка — {format_rubles(fixed)}")
+    providers = await delivery.enabled_providers(session)
+    if providers:
+        blocks.append("\nДоставка до пункта выдачи:")
+        blocks.extend(provider_price_line(provider) for provider in providers)
 
     await ui.reply(event, text="\n".join(blocks), keyboard=_order_or_back())
 
@@ -156,12 +157,10 @@ async def show_delivery(event: Event, session: AsyncSession) -> None:
     providers = await delivery.enabled_providers(session)
     lines = ["<b>🚚 Доставка</b>", ""]
     if providers:
-        lines.extend(f"{provider_icon(provider.code)} {provider.name}" for provider in providers)
+        lines.extend(provider_price_line(provider) for provider in providers)
+        lines.extend(["", "Стоимость доставки входит в чек."])
     else:
-        lines.append("Пункты выдачи СДЭК и Яндекса")
-    fixed = await delivery.fixed_price_kopecks(session)
-    if fixed is not None:
-        lines.extend(["", f"Стоимость — {format_rubles(fixed)}, фиксированная, входит в чек."])
+        lines.append("Пункты выдачи СДЭК, Яндекса и Ozon")
 
     builder = InlineKeyboardBuilder()
     builder.row(menu_button("📍 Ближайшие пункты", "nearest"))

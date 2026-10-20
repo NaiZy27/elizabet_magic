@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import secrets
@@ -28,12 +29,20 @@ logger = logging.getLogger(__name__)
 SESSION_USER_ID = "admin_id"
 SESSION_USERNAME = "admin_username"
 SESSION_CSRF = "csrf_token"
+#: Отпечаток пароля, с которым открыта сессия. Сменили пароль — отпечаток не
+#: совпадёт, и все остальные входы закроются (на других устройствах тоже).
+SESSION_PASSWORD = "password_mark"
 
 #: Хэш-пустышка: сравниваем с ним пароль для несуществующего логина,
 #: чтобы время ответа не выдавало, какие логины существуют.
 _DUMMY_HASH = bcrypt.hashpw(b"dummy-password-for-timing", bcrypt.gensalt())
 
 MIN_PASSWORD_LENGTH = 12
+
+
+def password_mark(password_hash: str) -> str:
+    """Короткий отпечаток хэша пароля для сессии. Сам хэш в cookie не кладём."""
+    return hashlib.sha256(password_hash.encode("utf-8")).hexdigest()[:16]
 
 
 def hash_password(password: str) -> str:
@@ -94,6 +103,7 @@ async def login_user(request: Request, user: AdminUser) -> None:
     request.session[SESSION_USER_ID] = user.id
     request.session[SESSION_USERNAME] = user.username
     request.session[SESSION_CSRF] = secrets.token_urlsafe(32)
+    request.session[SESSION_PASSWORD] = password_mark(user.password_hash)
     user.last_login_at = now_utc()
 
 
@@ -149,6 +159,13 @@ class RequireLogin:
             user = await session.scalar(
                 select(AdminUser).where(AdminUser.id == user_id, AdminUser.is_active.is_(True)),
             )
+
+        if user is not None and not hmac.compare_digest(
+            str(request.session.get(SESSION_PASSWORD) or ""),
+            password_mark(user.password_hash),
+        ):
+            # Пароль сменили после входа — эта сессия больше не действует.
+            user = None
 
         if user is None:
             request.session.clear()

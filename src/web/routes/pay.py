@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import hmac
 import logging
 from urllib.parse import urlsplit
 
@@ -81,31 +80,6 @@ async def robokassa_result(request: Request, session: DbSession):
         logger.error("Робокасса, счёт %s: %s", inv_id, error.message)
         return PlainTextResponse("rejected", status_code=status.HTTP_409_CONFLICT)
     return PlainTextResponse(f"OK{inv_id}")
-
-
-@webhooks.post("/cdek/{secret}")
-async def cdek_status(request: Request, secret: str):
-    """Вебхук СДЭК о смене статуса заказа.
-
-    СДЭК уведомления не подписывает: защищает секрет в адресе, а сам статус мы не
-    берём из тела — фоновая задача перезапрашивает заказ у СДЭК по uuid. Отвечаем
-    сразу, чтобы СДЭК не ждал и не повторял.
-    """
-    expected = get_settings().cdek.webhook_secret.get_secret_value()
-    if not expected or not hmac.compare_digest(secret, expected):
-        return PlainTextResponse("not found", status_code=status.HTTP_404_NOT_FOUND)
-    try:
-        data = await request.json()
-    except ValueError:
-        return PlainTextResponse("bad json", status_code=status.HTTP_400_BAD_REQUEST)
-    if not isinstance(data, dict):
-        return PlainTextResponse("ok")
-    uuid = str(data.get("uuid") or "")
-    if data.get("type") == "ORDER_STATUS" and uuid:
-        from worker.tasks.shipments import refresh_cdek_order
-
-        await refresh_cdek_order.kiq(uuid=uuid)
-    return PlainTextResponse("ok")
 
 
 async def _payment_by_inv_id(session, inv_id: str):

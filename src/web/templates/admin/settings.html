@@ -50,6 +50,15 @@
       <label for="pause_message">Сообщение, пока приём закрыт</label>
       <textarea id="pause_message" name="pause_message">{{ intake.pause_message }}</textarea>
     </div>
+    <label class="switch" style="margin:8px 0">
+      <input type="checkbox" name="slow_mode" value="true" {{ 'checked' if intake.slow_mode }}>
+      Повышенное ожидание
+    </label>
+    <div class="form-row">
+      <label for="slow_message">Предупреждение клиентам</label>
+      <textarea id="slow_message" name="slow_message">{{ intake.slow_message }}</textarea>
+      <span class="helptext">Заказы принимаются как обычно, а клиент видит это предупреждение в начале оформления и перед оплатой. Чтобы и дата учитывала задержку, добавьте «Запас к сроку».</span>
+    </div>
     <button type="submit">Сохранить</button>
   </form>
 </section>

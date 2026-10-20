@@ -57,23 +57,28 @@ async def save_provider(
     provider_id: int,
     session: DbSession,
     admin: CurrentOwner,
-    fallback_price: Annotated[str, Form()],
+    moscow_price: Annotated[str, Form()],
+    region_price: Annotated[str, Form()],
     is_enabled: Annotated[bool, Form()] = False,
     csrf: Annotated[str, Form(alias="csrf_token")] = "",
 ):
-    """Включение службы и резервная цена, по которой считаем, если API молчит."""
+    """Включение службы и её цены доставки: по Москве и по России."""
     verify_csrf(request, csrf)
     provider = await session.get(DeliveryProvider, provider_id)
     if provider is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Служба не найдена")
 
-    try:
-        provider.fallback_price_kopecks = parse_rubles(fallback_price)
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Резервная цена: {error}",
-        ) from error
+    for field, value, title in (
+        ("moscow_price_kopecks", moscow_price, "Цена по Москве"),
+        ("region_price_kopecks", region_price, "Цена по России"),
+    ):
+        try:
+            setattr(provider, field, parse_rubles(value))
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{title}: {error}",
+            ) from error
 
     provider.is_enabled = is_enabled
     await session.flush()

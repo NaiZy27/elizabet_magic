@@ -39,6 +39,7 @@
     <div class="side-foot">
       <span class="avatar">{{ admin.username[:1] }}</span>
       <span class="who"><b>{{ admin.username }}</b><small>{{ admin.role.value | admin_role }}</small></span>
+      <a class="icon-btn" href="/admin/password" title="Сменить пароль" aria-label="Сменить пароль">{{ icon('key') }}</a>
       <form class="logout" method="post" action="/admin/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="icon-btn" type="submit" title="Выйти" aria-label="Выйти">{{ icon('logout') }}</button>
@@ -51,6 +52,7 @@
     <div class="mobile-top">
       <a class="brand" href="{{ '/admin/home' if owner else '/admin/board' }}"><span class="brand-mark">E</span><span class="brand-name">Elizabet Magic</span></a>
       {% if admin %}
+      <a class="icon-btn" href="/admin/password" title="Сменить пароль" aria-label="Сменить пароль" style="margin-left:auto">{{ icon('key') }}</a>
       <form class="logout" method="post" action="/admin/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="icon-btn" type="submit" title="Выйти" aria-label="Выйти">{{ icon('logout') }}</button>

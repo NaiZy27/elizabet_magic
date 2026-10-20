@@ -25,6 +25,8 @@ class Checkout(StatesGroup):
     # Общее для всего заказа.
     pickup = State()
     pickup_confirm = State()
+    # Пункт, которого нет в списке: клиент пишет адрес сам.
+    pickup_manual = State()
     recipient_confirm = State()
     recipient_name = State()
     recipient_phone = State()
@@ -64,6 +66,8 @@ PICKUP_QUERY = "pickup_query"
 PICKUP_OFFSET = "pickup_offset"
 PICKUP_LATITUDE = "pickup_latitude"
 PICKUP_LONGITUDE = "pickup_longitude"
+MANUAL_PROVIDER = "manual_provider"
+MANUAL_MOSCOW = "manual_moscow"
 RECIPIENT_NAME = "recipient_name"
 RECIPIENT_PHONE = "recipient_phone"
 #: Возврат к итогу после точечной правки одного раздела.
