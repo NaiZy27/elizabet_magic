@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import ui
 from bot.callbacks import NearestPointCB
-from bot.emoji import provider_icon, provider_plain
+from bot.emoji import provider_button, provider_icon
 from bot.keyboards.common import main_menu, menu_button
 from core.config import get_settings
 from core.errors import NotFoundError
@@ -86,11 +86,13 @@ async def show_point_on_map(
 def _points_keyboard(found: list[tuple[PickupPoint, float]]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for point, _ in found:
-        builder.button(
-            text=f"{provider_plain(point.provider)} {truncate(point.address, 50)}",
-            callback_data=NearestPointCB(point_id=point.id).pack(),
+        builder.row(
+            provider_button(
+                point.provider,
+                truncate(point.address, 50),
+                NearestPointCB(point_id=point.id).pack(),
+            ),
         )
-    builder.adjust(1)
     builder.row(menu_button("🛍 Заказать бокс", "order", style="primary"))
     builder.row(menu_button("← Меню", "home", style="link"))
     return builder.as_markup()

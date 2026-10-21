@@ -8,13 +8,12 @@
 
 from aiogram import Router
 
-from bot.handlers import checkout, fallback, menu, my_orders, nearest_pickup, owner, reviews
+from bot.handlers import checkout, fallback, menu, my_orders, nearest_pickup, owner
 
 
 def build_router() -> Router:
     router = Router(name="root")
     router.include_router(owner.router)
-    router.include_router(reviews.router)
     router.include_router(checkout.router)
     router.include_router(my_orders.router)
     router.include_router(nearest_pickup.router)

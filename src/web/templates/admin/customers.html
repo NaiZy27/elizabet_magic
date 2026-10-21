@@ -1,12 +1,11 @@
 {% extends "admin/base.html" %}
-{% from "admin/_ui.html" import search, tabs %}
+{% from "admin/_ui.html" import search %}
 {% block title %}Клиенты{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div class="head-left">
     <h1>Клиенты</h1>
-    {{ tabs([('/admin/customers', 'Покупатели', True), ('/admin/reviews', 'Отзывы', False)]) }}
   </div>
 </div>
 

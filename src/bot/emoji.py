@@ -1,10 +1,12 @@
-"""Премиум-эмодзи служб доставки.
+"""Премиум-эмодзи служб доставки — логотипы из набора logoskirnel.
 
-В тексте они ставятся тегом <tg-emoji>: у кого премиум-эмодзи не отображаются,
-Telegram покажет обычный эмодзи, указанный внутри тега.
+В тексте они ставятся тегом <tg-emoji>, на кнопке — иконкой (icon_custom_emoji_id).
+У кого премиум-эмодзи не отображаются, Telegram покажет обычный эмодзи на замену.
 """
 
 from __future__ import annotations
+
+from aiogram.types import InlineKeyboardButton
 
 from core.enums import DeliveryProviderCode
 from core.models import DeliveryProvider
@@ -14,37 +16,50 @@ from core.money import format_rubles
 PROVIDER_EMOJI: dict[DeliveryProviderCode, tuple[str, str]] = {
     DeliveryProviderCode.CDEK: ("5278644188378834013", "📦"),
     DeliveryProviderCode.YANDEX: ("5208863395159231604", "🛍"),
-}
-
-#: Службы без премиум-эмодзи (их id пока не подобраны) — обычный эмодзи.
-PLAIN_EMOJI: dict[DeliveryProviderCode, str] = {
-    DeliveryProviderCode.OZON: "🔵",
+    DeliveryProviderCode.OZON: ("5460980277536919033", "🔵"),
 }
 
 _DEFAULT = "📍"
 
 
+def _emoji(code: str | DeliveryProviderCode | None) -> tuple[str, str] | None:
+    try:
+        return PROVIDER_EMOJI.get(DeliveryProviderCode(code))
+    except ValueError:
+        return None
+
+
 def provider_icon(code: str | DeliveryProviderCode | None) -> str:
     """Тег премиум-эмодзи службы для HTML-текста сообщения."""
-    try:
-        provider = DeliveryProviderCode(code)
-    except ValueError:
+    emoji = _emoji(code)
+    if emoji is None:
         return _DEFAULT
-    if provider in PROVIDER_EMOJI:
-        emoji_id, fallback = PROVIDER_EMOJI[provider]
-        return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-    return PLAIN_EMOJI.get(provider, _DEFAULT)
+    emoji_id, fallback = emoji
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
 
-def provider_plain(code: str | DeliveryProviderCode | None) -> str:
-    """Обычный эмодзи службы — для подписей кнопок, где HTML не работает."""
-    try:
-        provider = DeliveryProviderCode(code)
-    except ValueError:
-        return _DEFAULT
-    if provider in PROVIDER_EMOJI:
-        return PROVIDER_EMOJI[provider][1]
-    return PLAIN_EMOJI.get(provider, _DEFAULT)
+def provider_button(
+    code: str | DeliveryProviderCode | None,
+    text: str,
+    callback_data: str,
+) -> InlineKeyboardButton:
+    """Кнопка с логотипом службы перед текстом."""
+    emoji = _emoji(code)
+    if emoji is None:
+        return InlineKeyboardButton(text=f"{_DEFAULT} {text}", callback_data=callback_data)
+    return InlineKeyboardButton(
+        text=text,
+        callback_data=callback_data,
+        icon_custom_emoji_id=emoji[0],
+    )
+
+
+def fallback_for(emoji_id: str) -> str:
+    """Обычный эмодзи на замену иконке кнопки — для rich-разметки кнопок."""
+    for known_id, fallback in PROVIDER_EMOJI.values():
+        if known_id == emoji_id:
+            return fallback
+    return "⭐"
 
 
 def provider_price_line(provider: DeliveryProvider) -> str:

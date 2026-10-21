@@ -211,7 +211,7 @@ async def contacts_button(
 
 @router.message(F.text == BTN_CONTACTS)
 async def show_contacts(event: Event, state: FSMContext, session: AsyncSession) -> None:
-    """«Связаться с нами»: следующее сообщение клиента уходит нам в рабочий чат."""
+    """«Связаться с нами»: следующее сообщение клиента уходит владелице в бот."""
     contacts = await settings.get_contacts(session)
     lines = [
         "<b>📞 Связаться с нами</b>",
@@ -242,15 +242,14 @@ async def relay_to_team(
     session: AsyncSession,
     customer: Customer,
 ) -> None:
-    """Переслать сообщение клиента в рабочий чат: сначала кто пишет, затем само сообщение."""
-    chat = get_settings().owner.reviews_channel_id
-    if not chat or message.bot is None:
+    """Переслать сообщение клиента владелице: сначала кто пишет, затем само сообщение."""
+    chat_id = get_settings().owner.owner_chat_id
+    if not chat_id or message.bot is None:
         await state.clear()
         await ui.reply(
             message, text="Не получилось отправить — попробуйте позже.", keyboard=main_menu()
         )
         return
-    chat_id: int | str = int(chat) if chat.lstrip("-").isdigit() else chat
 
     user = message.from_user
     name = escape(customer.full_name or (user.full_name if user else "") or "Клиент")
@@ -275,7 +274,7 @@ async def relay_to_team(
             message_id=message.message_id,
         )
     except (TelegramBadRequest, TelegramForbiddenError) as error:
-        logger.error("Сообщение клиента не ушло в рабочий чат: %s", error)
+        logger.error("Сообщение клиента не ушло владелице: %s", error)
         await ui.reply(
             message, text="Не получилось отправить — попробуйте позже.", keyboard=main_menu()
         )

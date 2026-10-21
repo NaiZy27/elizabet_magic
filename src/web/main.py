@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await shutdown()
         await close_redis()
-        # Панель шлёт фото и отзывы через клиентского бота — закрываем его HTTP-сессию.
+        # Панель шлёт сообщения через клиентского бота — закрываем его HTTP-сессию.
         await close_bot()
         await dispose_engine()
 

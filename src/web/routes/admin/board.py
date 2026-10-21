@@ -7,12 +7,10 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 
 from core.clock import format_date_short, today_moscow
 from core.enums import BOARD_STATUSES, QUEUE_STATUSES, OrderStatus
 from core.errors import ConflictError, DomainError
-from core.models import Review
 from core.services import analytics
 from core.services import board as board_service
 from core.services import catalog as catalog_service
@@ -86,12 +84,6 @@ async def show_home(request: Request, session: DbSession, admin: CurrentAdmin):
                 if item.is_active and catalog_service.active_variants(item.variants)
             ),
             customers=await analytics.customer_summary(session),
-            new_reviews=await session.scalar(
-                select(func.count(Review.id)).where(
-                    Review.hidden_at.is_(None),
-                    Review.posted_at.is_(None),
-                ),
-            ),
         )
     return render(request, "admin/home.html", context)
 

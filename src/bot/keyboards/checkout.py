@@ -24,7 +24,7 @@ from bot.callbacks import (
     StepCB,
     VideoCB,
 )
-from bot.emoji import provider_plain
+from bot.emoji import provider_button
 from bot.keyboards.common import (
     DANGER,
     PRIMARY,
@@ -144,8 +144,9 @@ def manual_providers(providers: Sequence[DeliveryProvider]) -> InlineKeyboardMar
     builder = InlineKeyboardBuilder()
     for provider in providers:
         builder.row(
-            button(
-                f"{provider_plain(provider.code)} {provider.name}",
+            provider_button(
+                provider.code,
+                provider.name,
                 ManualPickupCB(step="area", provider=str(provider.code)).pack(),
             ),
         )
@@ -190,8 +191,9 @@ def pickup_points(
     builder = InlineKeyboardBuilder()
     for point in points:
         builder.row(
-            button(
-                f"{provider_plain(point.provider)} {truncate(point.address, 58)}",
+            provider_button(
+                point.provider,
+                truncate(point.address, 58),
                 PickupCB(point_id=point.id).pack(),
             ),
         )

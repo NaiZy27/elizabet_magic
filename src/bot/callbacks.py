@@ -110,18 +110,3 @@ class MenuCB(CallbackData, prefix="m"):
     """Раздел главного меню: home, order, orders, prices, delivery, faq, contacts."""
 
     section: str
-
-
-class ReviewCB(CallbackData, prefix="rv"):
-    """Клиент: new — оставить отзыв к заказу, cancel — передумал."""
-
-    action: str
-    order_id: int = 0
-
-
-class ReviewAdminCB(CallbackData, prefix="ra"):
-    """Владелица: page — листать, post — в канал, photo — показать фото, hide — скрыть."""
-
-    action: str
-    index: int = 0
-    review_id: int = 0
