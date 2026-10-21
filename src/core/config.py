@@ -112,9 +112,10 @@ class Settings(BaseSettings):
 
     #: Приём денег: «robokassa» — настоящая оплата, «stub» — заглушка для тестов.
     payments_mode: PaymentsMode = "stub"
-    #: ТОЛЬКО ДЛЯ ПРОВЕРКИ: любой заказ оплачивается этой суммой (в копейках, 100 = 1 ₽),
-    #: а не своей ценой. Нужна, чтобы прогнать настоящий платёж за копейки. После
-    #: проверки строку из .env удалить — иначе все клиенты будут платить по 1 ₽.
+    #: ТОЛЬКО ДЛЯ ПРОВЕРКИ: каждая строка чека (бокс, услуга, доставка) стоит эту сумму
+    #: (в копейках, 100 = 1 ₽) вместо своей цены — заказ «бокс + видео + доставка»
+    #: оплачивается 3 ₽ настоящим построчным чеком. После проверки строку из .env
+    #: удалить — иначе все клиенты будут платить по 1 ₽ за строку.
     payments_test_amount_kopecks: int | None = Field(default=None, gt=0)
 
     database_url: str = "postgresql+asyncpg://em:changeme@localhost:5432/elizabet_magic"
@@ -220,8 +221,8 @@ def warn_about_stub_payments(logger: logging.Logger) -> None:
     settings = get_settings()
     if settings.payments_test_amount_kopecks:
         logger.warning(
-            "PAYMENTS_TEST_AMOUNT_KOPECKS=%s: любой заказ оплачивается этой суммой, а не своей "
-            "ценой. Это режим проверки — удалите строку из .env после теста.",
+            "PAYMENTS_TEST_AMOUNT_KOPECKS=%s: каждая строка чека стоит эту сумму, а не свою "
+            "цену. Это режим проверки — удалите строку из .env после теста.",
             settings.payments_test_amount_kopecks,
         )
     if settings.payments_are_real:

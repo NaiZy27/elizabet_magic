@@ -31,14 +31,17 @@ from core.enums import (
 )
 from core.errors import ConflictError, ValidationError
 from core.models import Order, Payment, Receipt
-from core.services import notifications, orders
+from core.services import notifications, orders, robokassa
 
 #: Адрес, с которого начинаются ссылки на чеки «Мой налог».
 NALOG_RECEIPT_HOST = "lknpd.nalog.ru"
 
 
 def receipt_lines(order: Order) -> list[dict[str, int | str]]:
-    """Позиции чека: по строке на бокс с его услугами, отдельно общие услуги и доставка."""
+    """Позиции чека: по строке на бокс с его услугами, отдельно общие услуги и доставка.
+
+    Суммы — те же, что ушли в Робочеки: в режиме проверки по 1 ₽ за строку.
+    """
     lines: list[dict[str, int | str]] = []
     for item in order.items:
         lines.append(
@@ -56,7 +59,9 @@ def receipt_lines(order: Order) -> list[dict[str, int | str]]:
         lines.append(
             {"name": "Доставка до пункта выдачи", "amount_kopecks": order.delivery_kopecks}
         )
-    return lines
+    for line in lines:
+        line["amount_kopecks"] = robokassa.line_kopecks(int(line["amount_kopecks"]))
+    return [line for line in lines if line["amount_kopecks"]]
 
 
 async def get_for_payment(session: AsyncSession, payment_id: int) -> Receipt | None:

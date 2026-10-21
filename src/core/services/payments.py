@@ -139,8 +139,10 @@ async def create_payment(session: AsyncSession, order: Order) -> Payment:
 
 
 def payable_kopecks(order: Order) -> int:
-    """Сколько списать за заказ. Обычно — его итог; в режиме проверки — проверочная сумма."""
-    return get_settings().payments_test_amount_kopecks or order.total_kopecks
+    """Сколько списать за заказ. Обычно — его итог; в режиме проверки — по 1 ₽ за строку чека."""
+    if get_settings().payments_test_amount_kopecks:
+        return sum(int(line["amount_kopecks"]) for line in receipts.receipt_lines(order))
+    return order.total_kopecks
 
 
 def is_current(payment: Payment) -> bool:
