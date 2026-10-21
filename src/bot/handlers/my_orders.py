@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from bot import rich, ui
-from bot.callbacks import MenuCB, OrderCB, ReviewCB
+from bot.callbacks import MenuCB, OrderCB
 from bot.keyboards.common import BTN_MY_ORDERS, DANGER, PRIMARY, SUCCESS, menu_button
 from core.clock import format_date, format_datetime
 from core.enums import CancelReason, OrderStatus, ReceiptStatus
@@ -293,13 +293,8 @@ def _progress(order: Order) -> str:
 
 
 async def _order_keyboard(session: AsyncSession, order: Order) -> InlineKeyboardMarkup:
-    """Кнопки под карточкой: оплатить неоплаченный, оставить отзыв о полученном."""
+    """Кнопки под карточкой: оплатить неоплаченный."""
     builder = InlineKeyboardBuilder()
-    if order.status == OrderStatus.COMPLETED:
-        builder.button(
-            text="💌 Оставить отзыв",
-            callback_data=ReviewCB(action="new", order_id=order.id).pack(),
-        )
     if order.status != OrderStatus.WAITING_PAYMENT:
         builder.button(
             text="← Мои заказы", callback_data=MenuCB(section="orders").pack(), style="link"

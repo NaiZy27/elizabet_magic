@@ -14,22 +14,19 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import ui
-from bot.callbacks import MenuCB, OwnerPhotoCB, ReviewAdminCB
+from bot.callbacks import MenuCB, OwnerPhotoCB
 from bot.filters import IsStaff
 from bot.keyboards import owner as kb
 from bot.keyboards.common import MENU_BUTTONS
 from bot.states import PHOTO_PRODUCT_ID, OwnerPhoto
-from core.clock import format_date
 from core.config import get_settings
-from core.errors import NotFoundError
-from core.services import catalog, reviews
+from core.services import catalog
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +35,7 @@ router = Router(name="owner")
 router.message.filter(IsStaff())
 router.callback_query.filter(IsStaff())
 
-GREETING = "Рабочий режим 💗\nСюда приходят новые заказы и отзывы."
+GREETING = "Рабочий режим 💗\nСюда приходят новые заказы и сообщения клиентов."
 
 
 @router.message(CommandStart())
@@ -60,130 +57,6 @@ async def owner_home(callback: CallbackQuery, state: FSMContext) -> None:
 async def photo_button(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await callback.answer()
     await choose_product(callback, state, session)
-
-
-# --- отзывы ---
-
-
-@router.callback_query(MenuCB.filter(F.section == "o_reviews"))
-async def reviews_button(callback: CallbackQuery, session: AsyncSession) -> None:
-    await callback.answer()
-    await _show_review(callback, session, 0)
-
-
-@router.callback_query(ReviewAdminCB.filter(F.action == "page"))
-async def review_page(
-    callback: CallbackQuery,
-    callback_data: ReviewAdminCB,
-    session: AsyncSession,
-) -> None:
-    await callback.answer()
-    await _show_review(callback, session, callback_data.index)
-
-
-async def _show_review(callback: CallbackQuery, session: AsyncSession, index: int) -> None:
-    total = await reviews.count_visible(session)
-    if total == 0:
-        await ui.reply(callback, text="Отзывов пока нет.", keyboard=kb.owner_menu())
-        return
-    index = min(max(0, index), total - 1)
-    review = await reviews.visible_at(session, index)
-    if review is None:
-        return
-    lines = [f"⭐ <b>Отзыв</b> · {format_date(review.created_at.date())}", ""]
-    if review.text:
-        lines.append(f"«{review.text}»")
-    lines.append(f"— {reviews.author(review)}")
-    if review.photo_file_id:
-        lines.append("🖼 с фото")
-    await ui.reply(
-        callback,
-        text="\n".join(lines),
-        keyboard=kb.review_browser(
-            index=index,
-            total=total,
-            review_id=review.id,
-            has_photo=bool(review.photo_file_id),
-            posted=review.posted_at is not None,
-        ),
-    )
-
-
-@router.callback_query(ReviewAdminCB.filter(F.action == "photo"))
-async def review_photo(
-    callback: CallbackQuery,
-    callback_data: ReviewAdminCB,
-    session: AsyncSession,
-) -> None:
-    try:
-        review = await reviews.get(session, callback_data.review_id)
-    except NotFoundError as error:
-        await callback.answer(error.message, show_alert=True)
-        return
-    await callback.answer()
-    if review.photo_file_id and callback.message is not None:
-        await callback.message.answer_photo(review.photo_file_id)
-
-
-@router.callback_query(ReviewAdminCB.filter(F.action == "hide"))
-async def review_hide(
-    callback: CallbackQuery,
-    callback_data: ReviewAdminCB,
-    session: AsyncSession,
-) -> None:
-    try:
-        review = await reviews.get(session, callback_data.review_id)
-    except NotFoundError as error:
-        await callback.answer(error.message, show_alert=True)
-        return
-    await reviews.hide(session, review)
-    await callback.answer("Отзыв скрыт")
-    await _show_review(callback, session, callback_data.index)
-
-
-@router.callback_query(ReviewAdminCB.filter(F.action == "post"))
-async def review_post(
-    callback: CallbackQuery,
-    callback_data: ReviewAdminCB,
-    session: AsyncSession,
-) -> None:
-    """Опубликовать отзыв в канал от имени бота."""
-    channel = get_settings().owner.reviews_channel_id
-    if not channel:
-        await callback.answer(
-            "Канал для отзывов ещё не подключён: добавьте бота в канал администратором "
-            "и пришлите ссылку на канал программисту.",
-            show_alert=True,
-        )
-        return
-    try:
-        review = await reviews.get(session, callback_data.review_id)
-    except NotFoundError as error:
-        await callback.answer(error.message, show_alert=True)
-        return
-
-    chat_id: int | str = int(channel) if channel.lstrip("-").isdigit() else channel
-    text = reviews.channel_text(review)
-    try:
-        if review.photo_file_id:
-            await callback.bot.send_photo(chat_id=chat_id, photo=review.photo_file_id, caption=text)
-        else:
-            await callback.bot.send_message(chat_id=chat_id, text=text)
-    except (TelegramBadRequest, TelegramForbiddenError) as error:
-        logger.warning("Отзыв %s не ушёл в канал: %s", review.id, error)
-        await callback.answer(
-            "Не получилось: проверьте, что бот — администратор канала с правом публикации.",
-            show_alert=True,
-        )
-        return
-    await reviews.mark_posted(session, review)
-    await callback.answer("Опубликовано в канале ✅")
-    message = callback.message
-    if isinstance(message, Message) and message.text and message.text.startswith("💌"):
-        # Уведомление о новом отзыве: отмечаем, что он уже в канале.
-        await ui.mark_choice(message, "✅ Опубликован в канале")
-    else:
-        await _show_review(callback, session, callback_data.index)
 
 
 @router.message(F.text == kb.BTN_PANEL)

@@ -17,7 +17,7 @@ from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramRetryAfter,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage
+from aiogram.types import InlineKeyboardMarkup, InputRichMessage
 
 from bot import rich
 from core.clock import format_date, now_utc
@@ -70,7 +70,7 @@ async def notify_customer(
         return
 
     try:
-        await _send(chat_id, text, reply_markup=_customer_keyboard(key, order_id))
+        await _send(chat_id, text)
     except TelegramForbiddenError:
         await _record(order_id, key, sent=False, reason="бот заблокирован клиентом")
         async with session_scope() as session:
@@ -230,26 +230,6 @@ def _order_outcome(order: Order) -> str | None:
     if order.status == OrderStatus.CANCELLED:
         return "✖️ Заказ отменён"
     return None
-
-
-def _customer_keyboard(key: MessageTemplateKey, order_id: int) -> InlineKeyboardMarkup | None:
-    """Кнопка под уведомлением: после получения заказа просим отзыв."""
-    if key != MessageTemplateKey.STATUS_COMPLETED:
-        return None
-    # Импорт здесь: воркеру клиентский бот целиком не нужен, только формат кнопки.
-    from bot.callbacks import ReviewCB
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="💌 Оставить отзыв",
-                    callback_data=ReviewCB(action="new", order_id=order_id).pack(),
-                    style="primary",
-                ),
-            ],
-        ],
-    )
 
 
 async def _send(

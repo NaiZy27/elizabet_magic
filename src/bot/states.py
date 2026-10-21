@@ -89,16 +89,6 @@ BOX_KEYS = (
 PHOTO_PRODUCT_ID = "photo_product_id"
 
 
-class ReviewForm(StatesGroup):
-    """Клиент пишет отзыв."""
-
-    waiting = State()
-
-
-#: К какому заказу отзыв.
-REVIEW_ORDER_ID = "review_order_id"
-
-
 class ContactForm(StatesGroup):
     """Клиент пишет нам из «Связаться с нами»."""
 

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=6">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=7">
 </head>
 <body>
 {% set path = request.url.path %}
@@ -20,7 +20,7 @@
 {% set sections = [
   ('/admin/board', 'Заказы', 'orders', path.startswith('/admin/board') or path.startswith('/admin/orders'), True),
   ('/admin/catalog', 'Товары', 'box', path.startswith('/admin/catalog'), owner),
-  ('/admin/customers', 'Клиенты', 'people', path.startswith('/admin/customers') or path.startswith('/admin/reviews'), owner),
+  ('/admin/customers', 'Клиенты', 'people', path.startswith('/admin/customers'), owner),
   ('/admin/stats', 'Статистика', 'chart', path.startswith('/admin/stats') or path.startswith('/admin/payments'), owner),
   ('/admin/settings', 'Настройки', 'gear', path.startswith('/admin/settings') or path.startswith('/admin/delivery') or path.startswith('/admin/users') or path.startswith('/admin/pickup-points'), owner),
 ] %}
@@ -66,7 +66,7 @@
 {% if owner %}
 {# На телефоне внизу только три пункта: заказы, товары и клиенты открываются с главной. #}
 {% set home_active = path.startswith('/admin/home') or path.startswith('/admin/board') or path.startswith('/admin/orders')
-   or path.startswith('/admin/catalog') or path.startswith('/admin/customers') or path.startswith('/admin/reviews') %}
+   or path.startswith('/admin/catalog') or path.startswith('/admin/customers') %}
 <nav class="tabbar" aria-label="Разделы">
   <a class="{{ 'active' if home_active }}" href="/admin/home">{{ icon('home') }}<span>Главная</span></a>
   {% for href, label, ico, active, visible in sections if visible and href in ('/admin/stats', '/admin/settings') %}

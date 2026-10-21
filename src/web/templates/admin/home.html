@@ -31,12 +31,6 @@
     <span class="home-value">{{ customers.buyers }}</span>
     <span class="home-note">+{{ customers.new_30d }} за 30 дней</span>
   </a>
-  <a class="home-tile blush" href="/admin/reviews">
-    <span class="home-top"><span class="home-icon">{{ icon('star') }}</span><span class="home-go">{{ icon('arrow') }}</span></span>
-    <span class="home-title">Отзывы</span>
-    <span class="home-value">{{ new_reviews or 0 }}</span>
-    <span class="home-note">{{ 'новых, ждут публикации' if new_reviews else 'новых нет' }}</span>
-  </a>
   {% endif %}
 </section>
 

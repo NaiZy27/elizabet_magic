@@ -16,6 +16,8 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage
 
+from bot.emoji import fallback_for
+
 #: Стили, которые понимает обычная инлайн-клавиатура. «link» есть только у rich-кнопок.
 CLASSIC_STYLES = frozenset({"primary", "success", "danger"})
 
@@ -39,7 +41,9 @@ def button_html(button: InlineKeyboardButton) -> str:
         attrs.append(f'style="{_attr(button.style)}"')
     label = html.escape(button.text, quote=False)
     if button.icon_custom_emoji_id:
-        label = f'<tg-emoji emoji-id="{_attr(button.icon_custom_emoji_id)}">⭐</tg-emoji> {label}'
+        emoji_id = button.icon_custom_emoji_id
+        icon = f'<tg-emoji emoji-id="{_attr(emoji_id)}">{fallback_for(emoji_id)}</tg-emoji>'
+        label = f"{icon} {label}"
     return f"<tg-button {' '.join(attrs)}>{label}</tg-button>"
 
 
