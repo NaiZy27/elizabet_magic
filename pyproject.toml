@@ -90,6 +90,7 @@ ignore = [
 "migrations/*" = ["E501", "I001"]
 # Консольные команды общаются через print — это их интерфейс.
 "src/core/seed.py" = ["T201"]
+"src/core/cleanup.py" = ["T201"]
 "src/web/create_admin.py" = ["T201"]
 
 [tool.ruff.lint.isort]

@@ -62,6 +62,16 @@ def parse_out_sum(value: str) -> int:
     return int((amount * 100).quantize(Decimal("1")))
 
 
+def line_kopecks(kopecks: int) -> int:
+    """Сумма строки чека. В режиме проверки каждая платная строка стоит проверочную сумму.
+
+    Так проверка оплаты даёт настоящий построчный чек — бокс, услуги, доставка, —
+    только по 1 ₽ за строку вместо настоящих цен.
+    """
+    test_amount = get_settings().payments_test_amount_kopecks
+    return test_amount if test_amount and kopecks > 0 else kopecks
+
+
 def receipt_items(order: Order) -> list[dict[str, Any]]:
     """Позиции чека: бокс, каждая его услуга и доставка — отдельными строками.
 
@@ -73,6 +83,7 @@ def receipt_items(order: Order) -> list[dict[str, Any]]:
     def add(name: str, kopecks: int, kind: str) -> None:
         if kopecks <= 0:
             return
+        kopecks = line_kopecks(kopecks)
         items.append(
             {
                 "name": name[:_RECEIPT_NAME_LIMIT],
@@ -102,19 +113,6 @@ def receipt_json(order: Order, amount_kopecks: int) -> str | None:
     оплата пройдёт, а чек владелица пробьёт сама.
     """
     items = receipt_items(order)
-    test_amount = get_settings().payments_test_amount_kopecks
-    if test_amount and amount_kopecks == test_amount != order.total_kopecks:
-        # Режим проверки: настоящий чек на проверочную сумму одной строкой.
-        items = [
-            {
-                "name": "Подарочный бокс (проверка оплаты)",
-                "quantity": 1,
-                "sum": float(Decimal(amount_kopecks) / 100),
-                "payment_method": "full_payment",
-                "payment_object": "commodity",
-                "tax": "none",
-            },
-        ]
     total = sum(round(item["sum"] * 100) for item in items)
     if not items or total != amount_kopecks:
         return None
