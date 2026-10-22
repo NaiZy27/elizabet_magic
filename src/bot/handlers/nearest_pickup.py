@@ -19,7 +19,6 @@ from bot import ui
 from bot.callbacks import NearestPointCB
 from bot.emoji import provider_button, provider_icon
 from bot.keyboards.common import main_menu, menu_button
-from core.config import get_settings
 from core.errors import NotFoundError
 from core.labels import delivery_provider_label
 from core.models import PickupPoint
@@ -43,7 +42,6 @@ async def nearest_points(message: Message, state: FSMContext, session: AsyncSess
         session,
         latitude=location.latitude,
         longitude=location.longitude,
-        environment=get_settings().delivery_environment,
         limit=NEAREST_COUNT,
     )
     if not found:

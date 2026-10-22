@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from itertools import count
 
-from core.enums import DeliveryProviderCode, ProviderEnvironment
+from core.enums import DeliveryProviderCode
 from core.models import PickupPoint
 from core.services.delivery import distance_km, search_nearest
 
@@ -23,7 +23,6 @@ def make_point(lat: float, lon: float) -> PickupPoint:
     return PickupPoint(
         id=next(_ids),
         provider=DeliveryProviderCode.CDEK,
-        environment=ProviderEnvironment.PRODUCTION,
         external_id=f"p{next(_ids)}",
         name="ПВЗ",
         city="Москва",
@@ -52,7 +51,6 @@ def run(session: FakeSession, *, limit: int = 5, radii=(2.0, 5.0, 15.0)):
             session,
             latitude=HOME[0],
             longitude=HOME[1],
-            environment=ProviderEnvironment.PRODUCTION,
             limit=limit,
             radii_km=radii,
             # Службы явно: иначе поиск сначала спросит у базы список включённых.
@@ -115,7 +113,6 @@ def test_no_enabled_providers_means_no_points():
             session,
             latitude=HOME[0],
             longitude=HOME[1],
-            environment=ProviderEnvironment.PRODUCTION,
             providers=[],
         ),
     )

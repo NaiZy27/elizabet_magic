@@ -28,3 +28,6 @@ Thumbs.db
 /backups/
 *.log
 *.sql.gz
+
+# Черновик .env для сервера — не коммитить
+env.txt

@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from core.enums import DeliveryProviderCode, ProviderEnvironment, ShipmentStatus
+from core.enums import DeliveryProviderCode, ShipmentStatus
 from core.models.base import (
     Base,
     IdMixin,
@@ -78,27 +78,17 @@ class PickupPoint(IdMixin, TimestampMixin, Base):
 
     __tablename__ = "pickup_points"
     __table_args__ = (
-        UniqueConstraint("provider", "environment", "external_id"),
+        UniqueConstraint("provider", "external_id"),
         CheckConstraint("latitude BETWEEN -90 AND 90", name="latitude_range"),
         CheckConstraint("longitude BETWEEN -180 AND 180", name="longitude_range"),
         positive("max_weight_g"),
         # Поиск ближайших: сначала отсекаем прямоугольником по широте.
-        Index(
-            "ix_pickup_points_geo",
-            "provider",
-            "environment",
-            "is_active",
-            "latitude",
-        ),
+        Index("ix_pickup_points_geo", "provider", "is_active", "latitude"),
         Index("ix_pickup_points_city", "city"),
     )
 
     provider: Mapped[DeliveryProviderCode] = mapped_column(
         enum_type(DeliveryProviderCode, "pickup_point_provider"),
-    )
-    environment: Mapped[ProviderEnvironment] = mapped_column(
-        enum_type(ProviderEnvironment, "pickup_point_environment"),
-        default=ProviderEnvironment.TEST,
     )
     #: Код точки у службы: code у СДЭК, id у Яндекса.
     external_id: Mapped[str] = mapped_column(String(128))

@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.clock import now_utc
-from core.config import get_settings
 from core.enums import (
     ALLOWED_TRANSITIONS,
     QUEUE_STATUSES,
@@ -472,8 +471,8 @@ async def _apply_pickup_point(session: AsyncSession, order: Order, point: Pickup
 
 
 async def is_point_available(session: AsyncSession, point: PickupPoint) -> bool:
-    """Можно ли везти в этот пункт: он работает, из нашего контура, и служба включена."""
-    if not point.is_active or point.environment != get_settings().delivery_environment:
+    """Можно ли везти в этот пункт: он работает и служба включена."""
+    if not point.is_active:
         return False
     return point.provider in await delivery.enabled_codes(session)
 

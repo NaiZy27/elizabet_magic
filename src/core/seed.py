@@ -19,7 +19,6 @@ from core.enums import (
     VIDEO_ADDON_CODE,
     AddonChargeMode,
     DeliveryProviderCode,
-    ProviderEnvironment,
 )
 from core.models import (
     Addon,
@@ -157,8 +156,8 @@ async def seed_message_templates(session: AsyncSession) -> int:
     return added
 
 
-#: Демонстрационные пункты выдачи для тестового контура.
-#: Нужны, чтобы пройти оформление целиком, пока не подключена служба доставки.
+#: Демонстрационные пункты выдачи для локальной разработки (make seed-demo).
+#: Нужны, чтобы пройти оформление, не загружая настоящие справочники служб.
 DEMO_PICKUP_POINTS = [
     ("demo-msk-1", "Пункт выдачи на Тверской", "Москва", "г. Москва, ул. Тверская, 15"),
     ("demo-msk-2", "Пункт выдачи на Арбате", "Москва", "г. Москва, ул. Арбат, 24"),
@@ -180,11 +179,11 @@ DEMO_COORDINATES = {
 
 
 async def seed_demo_pickup_points(session: AsyncSession) -> int:
-    """Завести тестовые ПВЗ. В боевом контуре эти точки не появятся."""
+    """Завести демо-ПВЗ. На сервере не запускать: клиенты увидят выдуманные пункты."""
     existing = set(
         await session.scalars(
             select(PickupPoint.external_id).where(
-                PickupPoint.environment == ProviderEnvironment.TEST,
+                PickupPoint.provider == DeliveryProviderCode.CDEK,
             ),
         ),
     )
@@ -196,7 +195,6 @@ async def seed_demo_pickup_points(session: AsyncSession) -> int:
         session.add(
             PickupPoint(
                 provider=DeliveryProviderCode.CDEK,
-                environment=ProviderEnvironment.TEST,
                 external_id=external_id,
                 name=name,
                 city=city,

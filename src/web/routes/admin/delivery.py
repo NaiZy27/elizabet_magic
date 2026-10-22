@@ -8,9 +8,8 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, or_, select
 
-from core.config import get_settings
 from core.db import folded
-from core.enums import DeliveryProviderCode, ProviderEnvironment
+from core.enums import DeliveryProviderCode
 from core.models import DeliveryProvider, PickupPoint
 from core.money import parse_rubles
 from web.security import CurrentOwner, DbSession, csrf_token, verify_csrf
@@ -34,7 +33,6 @@ async def delivery_page(request: Request, session: DbSession, admin: CurrentOwne
             .where(
                 PickupPoint.provider == provider.code,
                 PickupPoint.is_active.is_(True),
-                PickupPoint.environment == get_settings().delivery_environment,
             ),
         )
 
@@ -44,7 +42,6 @@ async def delivery_page(request: Request, session: DbSession, admin: CurrentOwne
         {
             "providers": providers,
             "point_counts": counts,
-            "environment": get_settings().delivery_environment,
             "admin": admin,
             "csrf_token": csrf_token(request),
         },
@@ -126,7 +123,6 @@ async def pickup_points_page(
             "provider": provider,
             "only_active": only_active,
             "providers": list(DeliveryProviderCode),
-            "environments": list(ProviderEnvironment),
             "page": page,
             "pages": max(1, ((total or 0) + PAGE_SIZE - 1) // PAGE_SIZE),
             "total": total or 0,

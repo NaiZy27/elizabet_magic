@@ -16,8 +16,6 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from core.enums import ProviderEnvironment
-
 Environment = Literal["development", "test", "production"]
 
 #: Как принимаются деньги. «stub» — внутренняя заглушка: клиент отмечает заказ
@@ -105,10 +103,6 @@ class Settings(BaseSettings):
 
     environment: Environment = "development"
     tz: str = "Europe/Moscow"
-
-    #: Контур служб доставки: из него берутся кэшированные пункты выдачи.
-    #: Тестовые и боевые справочники лежат в одной таблице и не смешиваются.
-    delivery_environment: ProviderEnvironment = ProviderEnvironment.TEST
 
     #: Приём денег: «robokassa» — настоящая оплата, «stub» — заглушка для тестов.
     payments_mode: PaymentsMode = "stub"
