@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=7">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=8">
 </head>
 <body>
 {% set path = request.url.path %}
@@ -83,6 +83,7 @@
   </defs>
 </svg>
 <script src="{{ url_for('static', path='ui.js') }}?v=5" defer></script>
+<script src="{{ url_for('static', path='password-toggle.js') }}?v=1" defer></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

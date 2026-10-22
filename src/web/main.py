@@ -10,6 +10,7 @@ import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
@@ -146,7 +147,12 @@ def _register_error_handlers(app: FastAPI) -> None:
         return render(
             request,
             "errors/error.html",
-            {"code": 422, "title": "Не сохранилось", "message": message},
+            {
+                "code": 422,
+                "title": "Не сохранилось",
+                "message": message,
+                "back_url": _back_url(request),
+            },
             status_code=422,
         )
 
@@ -165,9 +171,25 @@ def _register_error_handlers(app: FastAPI) -> None:
                 "code": error.status_code,
                 "title": _error_title(error.status_code),
                 "message": error.detail,
+                "back_url": _back_url(request),
             },
             status_code=error.status_code,
         )
+
+
+def _back_url(request: Request) -> str:
+    """Куда ведёт «Назад» со страницы ошибки: страница, с которой пришли.
+
+    Ссылкой, а не history.back(): политика безопасности запрещает встроенный JavaScript.
+    Берём только адрес своего же сайта, иначе — доска заказов.
+    """
+    referer = urlsplit(request.headers.get("referer", ""))
+    if referer.netloc != request.url.netloc or not referer.path.startswith("/"):
+        return "/admin/board"
+    if referer.path == request.url.path and request.method == "GET":
+        # Ошибку показала сама эта страница — «назад» на неё же было бы петлёй.
+        return "/admin/board"
+    return referer.path + (f"?{referer.query}" if referer.query else "")
 
 
 def _wants_html(request: Request) -> bool:
