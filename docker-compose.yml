@@ -1,7 +1,17 @@
 # Боевая конфигурация. Наружу опубликован только web на 127.0.0.1:8000 —
 # снаружи к нему ходит nginx с хоста (см. deploy/nginx/).
 
+# Логи контейнеров: не больше 3 файлов по 10 МБ на сервис. Без ограничения
+# Docker копит их бесконечно, и за месяцы они съедают диск сервера.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 x-app: &app
+  <<: *logging
   build: .
   restart: unless-stopped
   env_file: .env
@@ -13,6 +23,7 @@ x-app: &app
 
 services:
   postgres:
+    <<: *logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -29,6 +40,7 @@ services:
       retries: 10
 
   redis:
+    <<: *logging
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
