@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.enums import DeliveryProviderCode, ProviderEnvironment
+from core.enums import DeliveryProviderCode
 from core.errors import NotFoundError
 from core.models import DeliveryProvider, Order, PickupPoint
 from core.text import normalize_search, search_words
@@ -148,7 +148,6 @@ async def search_by_text(
     session: AsyncSession,
     query: str,
     *,
-    environment: ProviderEnvironment,
     limit: int = PICKUP_POINTS_PAGE_SIZE,
     offset: int = 0,
     providers: Sequence[DeliveryProviderCode] | None = None,
@@ -165,18 +164,17 @@ async def search_by_text(
     if not words or not providers:
         return TextSearchResult(points=[], exact=True)
 
-    points = await _search_words(session, words, environment, limit, offset, providers)
+    points = await _search_words(session, words, limit, offset, providers)
     if points or len(words) == 1:
         return TextSearchResult(points=points, exact=True)
 
-    fallback = await _search_words(session, words[:1], environment, limit, offset, providers)
+    fallback = await _search_words(session, words[:1], limit, offset, providers)
     return TextSearchResult(points=fallback, exact=False, fallback_word=words[0])
 
 
 async def _search_words(
     session: AsyncSession,
     words: Sequence[str],
-    environment: ProviderEnvironment,
     limit: int,
     offset: int,
     providers: Sequence[DeliveryProviderCode] | None,
@@ -185,7 +183,6 @@ async def _search_words(
         select(PickupPoint)
         .where(
             PickupPoint.is_active.is_(True),
-            PickupPoint.environment == environment,
             *(PickupPoint.search_text.contains(word, autoescape=True) for word in words),
         )
         .order_by(PickupPoint.city, PickupPoint.address)
@@ -202,7 +199,6 @@ async def search_nearest(
     *,
     latitude: float,
     longitude: float,
-    environment: ProviderEnvironment,
     limit: int = PICKUP_POINTS_PAGE_SIZE,
     radii_km: Sequence[float] = NEAREST_SEARCH_RADII_KM,
     providers: Sequence[DeliveryProviderCode] | None = None,
@@ -229,12 +225,11 @@ async def search_nearest(
             longitude,
             radius_km,
             limit,
-            environment,
             providers,
         )
         if len(found) >= limit:
             return found[:limit]
-    found = await _nearest_within(session, latitude, longitude, None, limit, environment, providers)
+    found = await _nearest_within(session, latitude, longitude, None, limit, providers)
     return found[:limit]
 
 
@@ -244,15 +239,11 @@ async def _nearest_within(
     longitude: float,
     radius_km: float | None,
     limit: int,
-    environment: ProviderEnvironment,
     providers: Sequence[DeliveryProviderCode] | None,
 ) -> list[tuple[PickupPoint, float]]:
     """До `limit` ближайших пунктов в круге `radius_km` (None — без ограничения)."""
     distance = _sql_distance_km(latitude, longitude)
-    statement = select(PickupPoint).where(
-        PickupPoint.is_active.is_(True),
-        PickupPoint.environment == environment,
-    )
+    statement = select(PickupPoint).where(PickupPoint.is_active.is_(True))
     if radius_km is not None:
         lat_delta = radius_km / 111.0
         statement = statement.where(

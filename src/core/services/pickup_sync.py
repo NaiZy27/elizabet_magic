@@ -40,9 +40,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.clock import now_utc, today_moscow
-from core.config import get_settings
 from core.db import dispose_engine, session_scope
-from core.enums import DeliveryProviderCode, ProviderEnvironment
+from core.enums import DeliveryProviderCode
 from core.errors import ExternalServiceError
 from core.models import DeliveryProvider, PickupPoint
 from core.text import normalize_search
@@ -498,14 +497,12 @@ SOURCES = {
 async def _upsert(
     session: AsyncSession,
     provider: DeliveryProviderCode,
-    environment: ProviderEnvironment,
     rows: list[PointRow],
     synced_at: dt.datetime,
 ) -> None:
     values = [
         {
             "provider": provider,
-            "environment": environment,
             "external_id": row.external_id,
             "name": row.name,
             "city": row.city,
@@ -535,7 +532,7 @@ async def _upsert(
     )
     await session.execute(
         statement.on_conflict_do_update(
-            index_elements=["provider", "environment", "external_id"],
+            index_elements=["provider", "external_id"],
             set_={column: statement.excluded[column] for column in columns}
             | {"updated_at": synced_at},
         ),
@@ -552,7 +549,6 @@ async def sync_provider(provider: DeliveryProviderCode) -> Counter:
     Если часть источника не ответила (регион Overpass), записываем то, что получили,
     но ничего не выключаем — иначе пропали бы пункты непрочитанного региона.
     """
-    environment = get_settings().delivery_environment
     stats: Counter = Counter()
     failed: list[str] = []
     rows: list[PointRow] = []
@@ -566,7 +562,6 @@ async def sync_provider(provider: DeliveryProviderCode) -> Counter:
             known = await session.scalar(
                 select(func.count(PickupPoint.id)).where(
                     PickupPoint.provider == provider,
-                    PickupPoint.environment == environment,
                     PickupPoint.is_active.is_(True),
                 ),
             )
@@ -578,7 +573,7 @@ async def sync_provider(provider: DeliveryProviderCode) -> Counter:
             # У Postgres предел в 32 767 параметров на запрос: пишем кусками.
             for start in range(0, len(rows), BATCH_SIZE):
                 chunk = rows[start : start + BATCH_SIZE]
-                await _upsert(session, provider, environment, chunk, synced_at)
+                await _upsert(session, provider, chunk, synced_at)
 
             note = None
             if failed:
@@ -594,7 +589,6 @@ async def sync_provider(provider: DeliveryProviderCode) -> Counter:
                     update(PickupPoint)
                     .where(
                         PickupPoint.provider == provider,
-                        PickupPoint.environment == environment,
                         PickupPoint.is_active.is_(True),
                         (PickupPoint.synced_at.is_(None)) | (PickupPoint.synced_at < synced_at),
                     )

@@ -70,7 +70,6 @@ from bot.states import (
     Checkout,
 )
 from core.clock import format_date
-from core.config import get_settings
 from core.enums import DeliveryProviderCode, MessageTemplateKey
 from core.errors import DomainError
 from core.models import Customer, Order, OrderItem
@@ -778,7 +777,6 @@ async def _show_pickup_points(
     session: AsyncSession,
 ) -> None:
     data = await state.get_data()
-    environment = get_settings().delivery_environment
     offset = data.get(PICKUP_OFFSET, 0)
     page = delivery.PICKUP_POINTS_PAGE_SIZE
 
@@ -796,7 +794,6 @@ async def _show_pickup_points(
             session,
             latitude=latitude,
             longitude=longitude,
-            environment=environment,
             limit=page,
         )
         points = [point for point, _ in found]
@@ -805,7 +802,6 @@ async def _show_pickup_points(
         found_by_text = await delivery.search_by_text(
             session,
             query,
-            environment=environment,
             limit=page + 1,
             offset=offset,
         )

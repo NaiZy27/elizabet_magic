@@ -23,7 +23,7 @@
   {% if points %}
     <table>
       <thead>
-        <tr><th>Город</th><th>Адрес</th><th>Служба</th><th>Режим работы</th><th>Код</th><th>Контур</th><th>Работает</th></tr>
+        <tr><th>Город</th><th>Адрес</th><th>Служба</th><th>Режим работы</th><th>Код</th><th>Работает</th></tr>
       </thead>
       <tbody>
         {% for point in points %}
@@ -33,7 +33,6 @@
             <td>{{ point.provider.value | delivery_provider }}</td>
             <td>{{ point.working_hours or '—' }}</td>
             <td><code>{{ point.external_id }}</code></td>
-            <td>{{ 'тестовый' if point.environment.value == 'test' else 'боевой' }}</td>
             <td>{{ point.is_active | yes_no }}</td>
           </tr>
         {% endfor %}
