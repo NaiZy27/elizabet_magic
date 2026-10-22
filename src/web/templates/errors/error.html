@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{{ title }} — Elizabet Magic</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=7">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=8">
 </head>
 <body>
 <div class="login-page">
@@ -16,7 +16,7 @@
     <h1 style="margin-bottom:8px">{{ title }}</h1>
     <p class="muted">{{ message }}</p>
     <div class="actions" style="justify-content:center">
-      <a class="button" href="javascript:history.back()">Назад</a>
+      <a class="button" href="{{ back_url or '/admin/board' }}">Назад</a>
       <a class="button ghost" href="/admin/board">К заказам</a>
     </div>
   </div>

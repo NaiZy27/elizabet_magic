@@ -232,6 +232,21 @@ input, select, textarea, .field-input {
   background: var(--surface-soft); color: var(--ink); font: 400 14px var(--font);
   transition: border-color .15s, box-shadow .15s;
 }
+/* Поле пароля с «глазиком» (password-toggle.js) */
+.password-field { position: relative; display: block; }
+.password-field input { padding-right: 48px; }
+/* Через .password-field — сильнее общих правил кнопок вроде .login-card button. */
+.password-field .password-toggle,
+.password-field .password-toggle:hover,
+.password-field .password-toggle:active {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  width: 36px; height: 36px; margin: 0; padding: 0; border-radius: 10px;
+  background: transparent; color: var(--muted); box-shadow: none;
+}
+.password-field .password-toggle:hover { color: var(--ink); background: #ffffff0a; }
+.password-field .password-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 0; }
+.password-field .password-toggle svg { width: 20px; height: 20px; }
+
 input::placeholder, textarea::placeholder { color: var(--faint); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px #ec5f9f26; }
 textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
