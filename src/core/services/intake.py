@@ -112,8 +112,19 @@ async def check(session: AsyncSession, *, today: dt.date | None = None) -> Intak
     return IntakeState(is_open=False, message=message, next_date=next_date)
 
 
+#: Ключ advisory-блокировки приёма (любое число, лишь бы не совпало с другими).
+INTAKE_LOCK_KEY = 4_520_012
+
+
 async def ensure_open(session: AsyncSession) -> None:
-    """Проверка перед оформлением: закрыто — ошибка с текстом для клиента."""
+    """Проверка перед оформлением: закрыто — ошибка с текстом для клиента.
+
+    При лимите оформления идут по одному: блокировка держится до конца транзакции,
+    и следующий клиент считает заказы уже вместе с только что оформленным. Иначе двое
+    одновременно увидели бы одно свободное место и оба его заняли.
+    """
+    if (await settings.get_intake(session)).queue_limit is not None:
+        await session.execute(select(func.pg_advisory_xact_lock(INTAKE_LOCK_KEY)))
     state = await check(session)
     if not state.is_open:
         raise ValidationError(state.message)

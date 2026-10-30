@@ -18,6 +18,7 @@ from core.enums import (
     PaymentStatus,
     ReceiptProvider,
     ReceiptStatus,
+    RefundReason,
     ShipmentStatus,
 )
 
@@ -111,6 +112,14 @@ ORDER_EVENT_LABELS: dict[OrderEventType, str] = {
     OrderEventType.PAYMENT_AFTER_CANCEL: "⚠️ Оплата по отменённому заказу — нужен возврат",
     OrderEventType.RECEIPT_REGISTERED: "Чек зарегистрирован",
     OrderEventType.ARRIVED_AT_PICKUP: "Посылка в пункте выдачи",
+    OrderEventType.REFUND_REQUIRED: "⚠️ Нужно вернуть деньги клиенту",
+    OrderEventType.REFUND_DONE: "Деньги возвращены клиенту",
+}
+
+REFUND_REASON_LABELS: dict[RefundReason, str] = {
+    RefundReason.PAID_AFTER_CANCEL: "оплата пришла после отмены",
+    RefundReason.DUPLICATE_PAYMENT: "повторная оплата",
+    RefundReason.CANCELLED_AFTER_PAYMENT: "оплаченный заказ отменён",
 }
 
 #: Названия шаблонов уведомлений в админке: что это и когда уходит клиенту.
@@ -228,5 +237,12 @@ def receipt_status_label(code: str) -> str:
 def receipt_provider_label(code: str) -> str:
     try:
         return RECEIPT_PROVIDER_LABELS[ReceiptProvider(code)]
+    except ValueError:
+        return code
+
+
+def refund_reason_label(code: str) -> str:
+    try:
+        return REFUND_REASON_LABELS[RefundReason(code)]
     except ValueError:
         return code

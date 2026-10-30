@@ -33,6 +33,10 @@ _KEPT = f"SELECT order_id FROM receipts WHERE provider != '{ReceiptProvider.STUB
 
 #: (что удаляется, запрос) — по порядку: сначала то, что ссылается на заказы.
 _DELETES = (
+    # Возвраты ссылаются на заказы и оплаты без каскада — удаляются первыми.
+    ("возвраты", f"DELETE FROM refunds WHERE order_id NOT IN ({_KEPT})"),
+    # Очередь сообщений — целиком: всё в ней адресовано через тестового бота.
+    ("сообщения в очереди", "DELETE FROM outbox"),
     ("чеки", f"DELETE FROM receipts WHERE order_id NOT IN ({_KEPT})"),
     ("оплаты", f"DELETE FROM payments WHERE order_id NOT IN ({_KEPT})"),
     ("отправления", f"DELETE FROM shipments WHERE order_id NOT IN ({_KEPT})"),

@@ -329,7 +329,9 @@ async def show_spoons_step(
 
     await state.set_state(Checkout.spoons)
     if product.photo_file_id:
-        await ui.show_photo(event, state, file_id=product.photo_file_id, caption=product.name)
+        await ui.show_photo(
+            event, state, file_id=product.photo_file_id, caption=escape(product.name)
+        )
     await ui.show(
         event,
         state,
@@ -540,14 +542,16 @@ def describe_boxes(order: Order) -> str:
     for index, item in enumerate(order.items, start=1):
         prefix = f"{index}. " if many else ""
         name = (
-            item.name_snapshot if item.quantity == 1 else f"{item.name_snapshot} × {item.quantity}"
+            escape(item.name_snapshot)
+            if item.quantity == 1
+            else f"{escape(item.name_snapshot)} × {item.quantity}"
         )
         lines = [
             f"{prefix}<b>{name}</b> — {format_rubles(item.unit_price_kopecks * item.quantity)}",
         ]
         for addon in item.addons:
             lines.append(
-                f"   + {addon.name_snapshot.lower()} — {format_rubles(addon.total_kopecks)}"
+                f"   + {escape(addon.name_snapshot.lower())} — {format_rubles(addon.total_kopecks)}"
             )
         if item.addons:
             lines.append(f"   = {format_rubles(item.total_kopecks)}")
@@ -564,7 +568,7 @@ def describe_boxes(order: Order) -> str:
             lines.append(f"   ✍️ {escape(truncate(wishes, 120))}")
         blocks.append("\n".join(lines))
     blocks.extend(
-        f"{addon.name_snapshot} — {format_rubles(addon.total_kopecks)}"
+        f"{escape(addon.name_snapshot)} — {format_rubles(addon.total_kopecks)}"
         for addon in order.order_addons
     )
     return "\n".join(blocks)
@@ -643,9 +647,10 @@ async def show_pickup_confirm(
     order: Order,
 ) -> None:
     snapshot = order.pickup_snapshot or {}
-    lines = [f"{provider_icon(snapshot.get('provider'))} <b>{snapshot.get('address', '')}</b>"]
+    address = escape(snapshot.get("address", ""))
+    lines = [f"{provider_icon(snapshot.get('provider'))} <b>{address}</b>"]
     if snapshot.get("working_hours"):
-        lines.append(snapshot["working_hours"])
+        lines.append(escape(snapshot["working_hours"]))
     lines.extend(["", f"Доставка: {format_rubles(order.delivery_kopecks)}, входит в чек"])
     await state.set_state(Checkout.pickup_confirm)
     await ui.show(
@@ -833,10 +838,10 @@ async def _show_pickup_points(
         distance = distances.get(point.id)
         suffix = f" · {distance:.1f} км".replace(".", ",") if distance is not None else ""
         lines.append(
-            f"{provider_icon(point.provider)} <b>{truncate(point.address, 80)}</b>{suffix}"
+            f"{provider_icon(point.provider)} <b>{escape(truncate(point.address, 80))}</b>{suffix}"
         )
         if point.working_hours:
-            lines.append(f"      {truncate(point.working_hours, 80)}")
+            lines.append(f"      {escape(truncate(point.working_hours, 80))}")
     lines.extend(["", await _delivery_terms(session)])
 
     await ui.show(
@@ -1017,7 +1022,7 @@ async def _recipient_step(
     """Контакты из прошлого заказа — подтвердить одной кнопкой, иначе спросить."""
     if (
         order.recipient_name
-        and order.recipient_phone
+        and orders.normalize_phone(order.recipient_phone)
         and orders.is_valid_email(order.recipient_email)
     ):
         await state.set_state(Checkout.recipient_confirm)
@@ -1115,7 +1120,14 @@ async def receive_contact(
     session: AsyncSession,
     customer: Customer,
 ) -> None:
-    await _save_phone(message, state, session, customer, phone=message.contact.phone_number)
+    phone = orders.normalize_phone(message.contact.phone_number)
+    if phone is None:
+        await ui.consume(message, state)
+        await show_phone_step(
+            message, state, note="Это не российский номер. Напишите номер +7 900 123-45-67"
+        )
+        return
+    await _save_phone(message, state, session, customer, phone=phone)
 
 
 @router.message(Checkout.recipient_phone, F.text, NOT_MENU)
@@ -1125,11 +1137,10 @@ async def receive_phone_text(
     session: AsyncSession,
     customer: Customer,
 ) -> None:
-    phone = (message.text or "").strip()
-    digits = "".join(character for character in phone if character.isdigit())
-    if len(digits) < 10:
+    phone = orders.normalize_phone(message.text)
+    if phone is None:
         await ui.consume(message, state)
-        await show_phone_step(message, state, note="Номер неполный. Пример: +7 900 123-45-67")
+        await show_phone_step(message, state, note="Нужен только номер, например: +7 900 123-45-67")
         return
     await _save_phone(message, state, session, customer, phone=phone)
 
@@ -1246,7 +1257,8 @@ async def show_summary(
     if not order.items:
         await _start_box(event, state, session, order)
         return
-    if order.pickup_point_id is None:
+    # Адрес, введённый вручную, — пункт без записи в справочнике: pickup_point_id у него пуст.
+    if order.pickup_point_id is None and not (order.pickup_snapshot or {}).get("manual"):
         await state.update_data({EDITING: True})
         await show_pickup_search_step(event, state, session)
         return
@@ -1289,7 +1301,7 @@ def summary_text(
         "",
         f"<b>Итого: {format_rubles(order.total_kopecks)}</b>",
         "",
-        f"{provider_icon(snapshot.get('provider'))} {snapshot.get('address', '')}",
+        f"{provider_icon(snapshot.get('provider'))} {escape(snapshot.get('address', ''))}",
         f"👤 {escape(order.recipient_name or '')}, {escape(order.recipient_phone or '')}",
         f"✉️ {escape(order.recipient_email or '')}",
     ]

@@ -75,6 +75,17 @@
         </span>
       </div>
       <div class="total-line"><span class="muted">Итого</span><b>{{ order.total_kopecks | rubles }}</b></div>
+      {% for refund in refunds %}
+        <div class="{{ 'note' if refund.status.value == 'pending' else 'kv' }}" style="margin-top:12px">
+          {% if refund.status.value == 'pending' %}
+            Нужно вернуть {{ refund.amount_kopecks | rubles }} — {{ refund.reason.value | refund_reason }}.
+            <a href="/admin/refunds">К возвратам</a>
+          {% else %}
+            <span>Возврат</span>
+            <span>{{ refund.amount_kopecks | rubles }} · вернули {{ refund.completed_at | ru_datetime_short }}</span>
+          {% endif %}
+        </div>
+      {% endfor %}
 
       <details class="fold plain" style="margin-top:16px">
         <summary>Платежи и чеки <span class="muted">{{ payments | length }} · {{ receipts | length }}</span></summary>
@@ -174,13 +185,6 @@
       <summary>Сроки и отмена</summary>
       <div class="fold-body">
         {% if not ready_date %}<p class="muted small" style="margin-top:0">Расчётная дата на этом этапе не считается.</p>{% endif %}
-        <form method="post" action="/admin/orders/{{ order.id }}/production-days" class="form-row">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label for="production_days">Срок изготовления, раб. дней</label>
-          <input id="production_days" name="production_days" type="number" min="1" max="60" value="{{ order.production_days }}">
-          <button class="secondary small" type="submit" style="margin-top:8px">Сохранить срок</button>
-        </form>
-
         <form method="post" action="/admin/orders/{{ order.id }}/promised-date" class="form-row">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label for="promised_date">Обещали клиенту</label>
@@ -196,8 +200,9 @@
             <label for="reason">Отменить заказ</label>
             <input id="reason" name="reason" placeholder="Причина">
             {% if order.paid_at %}
-              <span class="helptext">Заказ оплачен: деньги верните в кабинете Робокассы,
-                а чек аннулируйте в «Мой налог». Клиент получит сообщение об отмене.</span>
+              <span class="helptext">Заказ оплачен: оплата встанет в список «Статистика» → «Возвраты».
+                Деньги верните в кабинете Робокассы, чек аннулируйте в «Мой налог» и отметьте
+                возврат в списке. Клиент получит сообщение об отмене.</span>
             {% endif %}
             <button class="danger small" type="submit" style="margin-top:8px">Отменить</button>
           </form>

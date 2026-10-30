@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=8">
+  <link rel="stylesheet" href="{{ url_for('static', path='admin.css') }}?v=9">
 </head>
 <body>
 {% set path = request.url.path %}
@@ -22,7 +22,7 @@
   ('/admin/board', 'Заказы', 'orders', path.startswith('/admin/board') or path.startswith('/admin/orders'), True),
   ('/admin/catalog', 'Товары', 'box', path.startswith('/admin/catalog'), owner),
   ('/admin/customers', 'Клиенты', 'people', path.startswith('/admin/customers'), owner),
-  ('/admin/stats', 'Статистика', 'chart', path.startswith('/admin/stats') or path.startswith('/admin/payments'), owner),
+  ('/admin/stats', 'Статистика', 'chart', path.startswith('/admin/stats') or path.startswith('/admin/payments') or path.startswith('/admin/refunds'), owner),
   ('/admin/settings', 'Настройки', 'gear', path.startswith('/admin/settings') or path.startswith('/admin/delivery') or path.startswith('/admin/users') or path.startswith('/admin/pickup-points'), owner),
 ] %}
 <div class="shell">

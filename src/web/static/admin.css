@@ -330,6 +330,8 @@ th.num { text-align: right; }
 .kv:first-child { border-top: 0; padding-top: 0; }
 .kv > :first-child { color: var(--muted); }
 .note { padding: 12px 16px; border-radius: var(--r-s); background: var(--warn-bg); color: var(--warn); }
+.note-banner { margin-bottom: 16px; }
+.note a { color: inherit; text-decoration: underline; }
 .danger-note { padding: 12px 16px; border-radius: var(--r-s); background: var(--bad-bg); color: var(--bad); }
 
 .fold { border-radius: var(--r-l); background: var(--surface); box-shadow: var(--shadow); }

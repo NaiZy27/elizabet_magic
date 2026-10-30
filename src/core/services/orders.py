@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +23,7 @@ from sqlalchemy.orm import selectinload
 from core.clock import now_utc
 from core.enums import (
     ALLOWED_TRANSITIONS,
+    PAID_STATUSES,
     QUEUE_STATUSES,
     STATUS_TEMPLATES,
     CancelReason,
@@ -183,6 +185,19 @@ async def save_box(
 ) -> OrderItem:
     """Добавить бокс в черновик или заменить уже добавленный (item_id)."""
     _ensure_draft(order)
+    # Сначала проверяем выбор: бот ловит ошибку и коммитит апдейт, и бокс, добавленный
+    # до ошибки, остался бы в черновике без цены и названия.
+    await catalog.price_order(
+        session,
+        items=[
+            RequestedItem(
+                variant_id=box.variant_id,
+                quantity=1,
+                spoon_count=box.spoon_count,
+                addon_ids=box.addon_ids,
+            ),
+        ],
+    )
 
     if item_id is None:
         rules = await settings.get_order_rules(session)
@@ -231,13 +246,17 @@ async def set_recipient(
     _ensure_draft(order)
     if not name.strip():
         raise ValidationError("Укажите имя получателя")
-    if not phone.strip():
-        raise ValidationError("Нужен телефон: без него служба доставки не примет посылку")
+    normalized_phone = normalize_phone(phone)
+    if normalized_phone is None:
+        raise ValidationError("Нужен российский номер телефона: +7 900 123-45-67")
     if not is_valid_email(email):
         raise ValidationError("Нужен email: на него придёт чек об оплате")
+    # Длины колонок в базе: длиннее — запись упала бы, и клиент не получил бы ответа.
+    if len(name.strip()) > 256 or len(email.strip()) > 256:
+        raise ValidationError("Имя или email слишком длинные — сократите, пожалуйста")
 
     order.recipient_name = name.strip()
-    order.recipient_phone = phone.strip()
+    order.recipient_phone = normalized_phone
     order.recipient_email = email.strip()
 
     # Запоминаем в карточке клиента, чтобы в следующий раз подставить эти же данные.
@@ -297,13 +316,41 @@ async def set_manual_pickup(
     return order
 
 
+def normalize_phone(value: str | None) -> str | None:
+    """Телефон в виде +7XXXXXXXXXX или None, если это не российский номер.
+
+    Принимаем так, как обычно пишут: «8 900 123-45-67», «+7 (900) 123 45 67»,
+    «9001234567». Буквы и приписки («звонить после 18») — не номер.
+    """
+    text = (value or "").strip()
+    if not text or any(character not in "0123456789+-() " for character in text):
+        return None
+    digits = "".join(character for character in text if character.isdigit())
+    if len(digits) == 10 and not text.startswith("+"):
+        digits = f"7{digits}"
+    elif len(digits) == 11 and digits[0] == "8" and not text.startswith("+"):
+        digits = f"7{digits[1:]}"
+    if len(digits) != 11 or digits[0] != "7":
+        return None
+    return f"+{digits}"
+
+
+#: Email, который примут Робочеки и почтовые службы: латиница, цифры и ._%+- до @,
+#: домен из частей через точку, в конце — зона из букв (ru, com, рф в punycode — xn--p1ai).
+_EMAIL = re.compile(
+    r"[A-Za-z0-9_%+-]+(\.[A-Za-z0-9_%+-]+)*"
+    r"@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+([A-Za-z]{2,}|xn--[A-Za-z0-9-]+)",
+)
+
+
 def is_valid_email(value: str | None) -> bool:
-    """Проверка «на опечатку», а не по RFC: одна @, точка в домене, без пробелов."""
+    """Проверка формата: на этот адрес Робочеки пришлют чек, опечатка — чек не дойдёт.
+
+    Не по всему RFC, а как выглядят настоящие адреса: без пробелов, кириллицы,
+    двух точек подряд и точки по краям.
+    """
     email = (value or "").strip()
-    if not email or " " in email or email.count("@") != 1:
-        return False
-    local, domain = email.split("@")
-    return bool(local) and "." in domain.strip(".") and not domain.startswith(".")
+    return len(email) <= 254 and _EMAIL.fullmatch(email) is not None
 
 
 # --- пересчёт ---
@@ -625,6 +672,10 @@ async def change_status(
         raise ValidationError(
             f"Нельзя перевести заказ из «{old_status}» в «{new_status}»",
         )
+    if _needs_payment(order, old_status, new_status):
+        raise ValidationError(
+            "Заказ ещё не оплачен — в очередь он встанет сам, когда придёт оплата",
+        )
 
     order.status = new_status
     order.status_changed_at = now_utc()
@@ -666,6 +717,25 @@ async def change_status(
     return order
 
 
+def _needs_payment(order: Order, old_status: OrderStatus, new_status: OrderStatus) -> bool:
+    """В работу заказ попадает только с оплатой: её проводит mark_paid, ставя paid_at.
+
+    Переведи владелица неоплаченный заказ в очередь руками — у него не было бы номера,
+    а пришедшая потом оплата отклонилась бы: заказ уже не «ожидает оплаты».
+    """
+    return new_status in PAID_STATUSES and old_status not in PAID_STATUSES and order.paid_at is None
+
+
+def manual_targets(order: Order) -> frozenset[OrderStatus]:
+    """Этапы, в которые заказ можно перевести руками из панели."""
+    old_status = OrderStatus(order.status)
+    return frozenset(
+        status
+        for status in ALLOWED_TRANSITIONS[old_status]
+        if not _needs_payment(order, old_status, status)
+    )
+
+
 async def lock(session: AsyncSession, order: Order) -> Order:
     """Заблокировать строку заказа до конца транзакции и перечитать его состояние.
 
@@ -703,16 +773,19 @@ async def cancel(
     """Отменить заказ и закрыть неоплаченную попытку оплаты.
 
     `only_unpaid` — для отмены клиентом и по сроку: если заказ успели оплатить,
-    пока шла отмена, отменять его нельзя.
+    пока шла отмена, отменять его нельзя. Оплаченный заказ отменяет только владелица,
+    и его оплата встаёт в список «к возврату».
     """
-    # Локальный импорт: payments тоже обращается к заказам.
-    from core.services import payments
+    # Локальный импорт: payments и refunds тоже обращаются к заказам.
+    from core.services import payments, refunds
 
     await lock(session, order)
     if only_unpaid and (order.status != OrderStatus.WAITING_PAYMENT or order.paid_at is not None):
         raise ConflictError("Заказ уже оплачен — отменить его так нельзя")
 
     await payments.cancel_pending(session, order.id)
+    if order.paid_at is not None and order.status != OrderStatus.CANCELLED:
+        await refunds.require_for_paid_order(session, order, actor=actor)
     order.cancel_reason = reason
     await change_status(
         session,

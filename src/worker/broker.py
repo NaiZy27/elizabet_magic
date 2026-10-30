@@ -26,6 +26,10 @@ _retries = SmartRetryMiddleware(
 
 broker = ListQueueBroker(url=_settings.redis_broker_url).with_middlewares(_retries)
 
+#: Cron в метках задач taskiq считает по UTC. Задачи «в 4:20 ночи» пишем по Москве:
+#: `schedule=[{"cron": "20 4 * * *", **MOSCOW_CRON}]`.
+MOSCOW_CRON = {"cron_offset": "Europe/Moscow"}
+
 #: Расписание собирается из меток `schedule=[...]` у самих задач.
 scheduler = TaskiqScheduler(broker=broker, sources=[LabelScheduleSource(broker)])
 

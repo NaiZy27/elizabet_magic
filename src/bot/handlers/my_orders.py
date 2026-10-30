@@ -19,6 +19,7 @@ from bot import rich, ui
 from bot.callbacks import MenuCB, OrderCB
 from bot.keyboards.common import BTN_MY_ORDERS, DANGER, PRIMARY, SUCCESS, menu_button
 from core.clock import format_date, format_datetime
+from core.db import after_commit
 from core.enums import CancelReason, OrderStatus, ReceiptStatus
 from core.errors import DomainError
 from core.labels import order_status_label
@@ -202,8 +203,14 @@ async def cancel_order(
         )
         await _strip(callback)
         return
-    await callback.answer("Заказ отменён")
-    await ui.mark_choice(callback.message, "✖️ Заказ отменён")
+
+    async def _confirm() -> None:
+        await callback.answer("Заказ отменён")
+        await ui.mark_choice(callback.message, "✖️ Заказ отменён")
+
+    # «Отменён» клиент видит только после коммита: если сохранить отмену не выйдет,
+    # он не должен думать, что заказа больше нет.
+    after_commit(session, _confirm)
 
 
 async def _strip(callback: CallbackQuery) -> None:
@@ -248,7 +255,7 @@ def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None
 
     snapshot = order.pickup_snapshot or {}
     if snapshot:
-        lines.append(f"Пункт выдачи: {snapshot.get('address', '')}")
+        lines.append(f"Пункт выдачи: {html.escape(snapshot.get('address', ''))}")
 
     if order.status == OrderStatus.CANCELLED:
         lines.extend(["", f"Статус: {_status_label(order)}"])
@@ -267,7 +274,7 @@ def _order_card(order: Order, shipment: Shipment | None, receipt: Receipt | None
     if shipment is not None and shipment.track_number:
         lines.append(f"\nТрек-номер: <code>{shipment.track_number}</code>")
     if order.status == OrderStatus.ARRIVED and (order.pickup_snapshot or {}).get("working_hours"):
-        lines.append(f"Режим работы пункта: {order.pickup_snapshot['working_hours']}")
+        lines.append(f"Режим работы пункта: {html.escape(order.pickup_snapshot['working_hours'])}")
     if receipt is not None and receipt.url:
         lines.append(f'\n🧾 <a href="{receipt.url}">Чек об оплате</a>')
     elif receipt is not None and receipt.status == ReceiptStatus.SENT and receipt.buyer_email:

@@ -27,6 +27,7 @@ from core.models import Customer, Order, OrderItem, Payment, Shipment
 from core.services import board as board_service
 from core.services import orders as orders_service
 from core.services import receipts as receipts_service
+from core.services import refunds as refunds_service
 from core.services import settings as settings_service
 from web.security import CurrentAdmin, CurrentOwner, DbSession, csrf_token, verify_csrf
 from web.templating import render
@@ -118,6 +119,7 @@ async def order_detail(
         ),
     )
     receipts = await receipts_service.list_for_order(session, order_id)
+    refunds = await refunds_service.list_for_order(session, order_id)
     shipments = list(
         await session.scalars(
             select(Shipment)
@@ -148,18 +150,19 @@ async def order_detail(
             "events": events,
             "payments": payments,
             "receipts": receipts,
+            "refunds": refunds,
             "shipments": shipments,
             "ready_date": ready_date,
             "is_late": board_service.is_late(ready_date, order.promised_ready_date)
             if ready_date
             else False,
             "previous_orders": previous_orders or 0,
-            # Черновик и «ожидает оплаты» руками не выставляются: их ставит сам заказ.
+            # Только этапы, куда можно перейти отсюда: неоплаченный заказ в очередь
+            # ставит оплата, а не панель.
             "statuses": [
                 item
                 for item in OrderStatus
-                if item not in {OrderStatus.DRAFT, OrderStatus.WAITING_PAYMENT}
-                or item == order.status
+                if item == order.status or item in orders_service.manual_targets(order)
             ],
             "admin": admin,
             "csrf_token": csrf_token(request),
@@ -244,31 +247,6 @@ async def mark_arrived(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=error.message,
         ) from error
-    return _back_to_order(order_id)
-
-
-@router.post("/{order_id}/production-days")
-async def save_production_days(
-    request: Request,
-    order_id: int,
-    session: DbSession,
-    admin: CurrentOwner,
-    production_days: Annotated[int, Form(ge=1, le=60)],
-    csrf: Annotated[str, Form(alias="csrf_token")] = "",
-):
-    """Срок изготовления. Меняет расчётные даты всех следующих в очереди."""
-    verify_csrf(request, csrf)
-    order = await _get_order(session, order_id)
-    was = order.production_days
-    order.production_days = production_days
-    await session.flush()
-    await orders_service.log_event(
-        session,
-        order,
-        OrderEventType.PRODUCTION_DAYS_CHANGED,
-        payload={"from": was, "to": production_days},
-        actor=orders_service.admin_actor(admin.id),
-    )
     return _back_to_order(order_id)
 
 

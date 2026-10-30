@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -25,6 +26,8 @@ from core.enums import (
     ProviderEnvironment,
     ReceiptProvider,
     ReceiptStatus,
+    RefundReason,
+    RefundStatus,
 )
 from core.models.base import Base, IdMixin, TimestampMixin, enum_type, money, non_negative
 
@@ -168,3 +171,48 @@ class Receipt(IdMixin, TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<Receipt {self.id} payment={self.payment_id} {self.status}>"
+
+
+class Refund(IdMixin, TimestampMixin, Base):
+    """Деньги, которые нужно вернуть клиенту.
+
+    Сам возврат владелица делает в кабинете Робокассы (и аннулирует чек в «Мой налог»),
+    здесь — список «к возврату» и отметка, что сделано. Одна запись на оплату.
+    """
+
+    __tablename__ = "refunds"
+    __table_args__ = (
+        non_negative("amount_kopecks"),
+        UniqueConstraint("payment_id", name="uq_refunds_payment"),
+        Index("ix_refunds_order", "order_id"),
+        Index("ix_refunds_pending", "created_at", postgresql_where=text("status = 'pending'")),
+    )
+
+    order_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("orders.id", ondelete="RESTRICT"),
+    )
+    payment_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("payments.id", ondelete="RESTRICT"),
+    )
+    amount_kopecks: Mapped[int] = money()
+    reason: Mapped[RefundReason] = mapped_column(enum_type(RefundReason, "refund_reason"))
+    status: Mapped[RefundStatus] = mapped_column(
+        enum_type(RefundStatus, "refund_status"),
+        default=RefundStatus.PENDING,
+    )
+    completed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
+    #: Кто отметил возврат: «admin:3».
+    completed_by: Mapped[str | None] = mapped_column(String(64), default=None)
+    #: Комментарий владелицы: номер операции возврата, договорённость с клиентом.
+    note: Mapped[str | None] = mapped_column(Text, default=None)
+
+    order: Mapped[Order] = relationship()
+    payment: Mapped[Payment] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<Refund {self.id} payment={self.payment_id} {self.status}>"

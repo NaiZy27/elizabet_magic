@@ -13,6 +13,7 @@ from web.routes.admin import (
     customers,
     delivery,
     orders,
+    refunds,
     settings,
     stats,
     users,
@@ -28,6 +29,7 @@ admin.include_router(catalog.router)
 admin.include_router(delivery.router)
 admin.include_router(customers.router)
 admin.include_router(stats.router)
+admin.include_router(refunds.router)
 admin.include_router(settings.router)
 admin.include_router(users.router)
 

@@ -21,7 +21,10 @@ down:  ## Остановить контейнеры
 logs:  ## Логи всех сервисов (Ctrl+C — выход)
 	$(COMPOSE) logs -f --tail=200
 
-migrate:  ## Применить миграции
+# Собираем все образы, а не только web: у bot, worker и scheduler образы свои, и без
+# пересборки следующий `up -d` поднял бы их на старом коде. Слои общие — это быстро.
+migrate:  ## Пересобрать образы и применить миграции (сервисы не перезапускает)
+	$(COMPOSE) build
 	$(COMPOSE) run --rm web alembic upgrade head
 
 revision:  ## Создать миграцию: make revision m="описание"
@@ -34,14 +37,15 @@ seed:  ## Наполнить базу стартовыми данными (ка�
 seed-demo:  ## То же плюс тестовые пункты выдачи — чтобы пройти заказ без службы доставки
 	$(COMPOSE) run --rm web python -m core.seed --demo-pickup-points
 
-test:  ## Прогнать тесты (нужна поднятая база)
-	$(COMPOSE) run --rm -e ENVIRONMENT=test web pytest -q
+# Тесты и ruff — локально через poetry: в боевом образе нет dev-зависимостей.
+test:  ## Прогнать тесты (база не нужна)
+	ENVIRONMENT=test poetry run pytest -q
 
 lint:  ## Проверка стиля
-	$(COMPOSE) run --rm web sh -c "ruff check . && ruff format --check ."
+	poetry run ruff check src tests migrations && poetry run ruff format --check src tests migrations
 
 fmt:  ## Отформатировать код
-	$(COMPOSE) run --rm web sh -c "ruff format . && ruff check --fix ."
+	poetry run ruff format src tests migrations && poetry run ruff check --fix src tests migrations
 
 admin:  ## Создать логин в админку: make admin u=имя
 	@test -n "$(u)" || (echo "Укажите логин: make admin u=elizabet" && exit 1)

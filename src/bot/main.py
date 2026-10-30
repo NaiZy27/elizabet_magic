@@ -17,6 +17,7 @@ from aiogram.types import BotCommand
 
 from bot.handlers import build_router
 from bot.middlewares import ContextMiddleware, SerialPerUserMiddleware
+from core import health
 from core.config import get_settings, warn_about_stub_payments
 from core.db import dispose_engine
 from worker.broker import ensure_started, shutdown
@@ -27,6 +28,17 @@ COMMANDS = [
     BotCommand(command="start", description="Начать сначала"),
     BotCommand(command="menu", description="Главное меню"),
 ]
+
+
+#: Как часто бот отмечает пульс для healthcheck (тот ждёт пульс не старше 2 минут).
+HEARTBEAT_SECONDS = 30
+
+
+async def _heartbeat() -> None:
+    """Пульс, пока цикл событий бота жив."""
+    while True:
+        health.beat("bot")
+        await asyncio.sleep(HEARTBEAT_SECONDS)
 
 
 def create_dispatcher() -> Dispatcher:
@@ -62,10 +74,12 @@ async def run() -> None:
     await ensure_started()
     await bot.set_my_commands(COMMANDS)
 
+    heartbeat = asyncio.create_task(_heartbeat())
     try:
         logger.info("Бот запущен")
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        heartbeat.cancel()
         await bot.session.close()
         await shutdown()
         await dispose_engine()

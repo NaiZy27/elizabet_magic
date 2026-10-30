@@ -201,6 +201,50 @@ class OrderEventType(StrEnum):
     PAYMENT_AFTER_CANCEL = "payment_after_cancel"
     RECEIPT_REGISTERED = "receipt_registered"
     ARRIVED_AT_PICKUP = "arrived_at_pickup"
+    #: Деньги клиента нужно вернуть — запись появилась в списке «К возврату».
+    REFUND_REQUIRED = "refund_required"
+    #: Владелица отметила, что вернула деньги в кабинете Робокассы.
+    REFUND_DONE = "refund_done"
+
+
+class RefundReason(StrEnum):
+    """Почему деньги нужно вернуть."""
+
+    #: Оплата пришла по заказу, который отменили клиент или владелица.
+    PAID_AFTER_CANCEL = "paid_after_cancel"
+    #: Заказ уже был оплачен другой попыткой — это вторая оплата.
+    DUPLICATE_PAYMENT = "duplicate_payment"
+    #: Владелица отменила уже оплаченный заказ.
+    CANCELLED_AFTER_PAYMENT = "cancelled_after_payment"
+
+
+class RefundStatus(StrEnum):
+    """Сам возврат делается в кабинете Робокассы; здесь — только отметка, что он сделан."""
+
+    PENDING = "pending"
+    DONE = "done"
+
+
+class OutboxKind(StrEnum):
+    """Что за сообщение лежит в очереди на отправку."""
+
+    #: Клиенту по шаблону.
+    CUSTOMER = "customer"
+    #: Владелице — карточка нового оплаченного заказа.
+    OWNER_ORDER = "owner_order"
+    #: Владелице — служебный текст (оплата после отмены, данные для отправки).
+    OWNER_TEXT = "owner_text"
+    #: Техническая тревога: упала синхронизация, что-то требует внимания разработчика.
+    ALERT = "alert"
+    #: Снять кнопки «Оплатить» / «Отменить» с сообщений по заказу.
+    STRIP_BUTTONS = "strip_buttons"
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "pending"
+    SENT = "sent"
+    #: Повторять бессмысленно: бот заблокирован, Telegram отклонил текст, кончились попытки.
+    FAILED = "failed"
 
 
 class MessageTemplateKey(StrEnum):

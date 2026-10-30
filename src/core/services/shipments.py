@@ -102,7 +102,7 @@ def manual_dispatch_text(order: Order) -> str:
         lines.append(f"💬 Telegram: {telegram}")
     lines += [
         "",
-        escape(notifications.describe_items(order)),
+        notifications.describe_items(order),
     ]
     return "\n".join(lines)
 

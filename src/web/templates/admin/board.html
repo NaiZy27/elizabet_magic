@@ -10,6 +10,13 @@
   </div>
 </div>
 
+{% if refunds_pending %}
+<div class="note note-banner">
+  ⚠️ Нужно вернуть деньги: {{ refunds_pending }} {{ refunds_pending | pluralize_ru('оплата', 'оплаты', 'оплат') }} —
+  <a href="/admin/refunds">открыть список возвратов</a>
+</div>
+{% endif %}
+
 <section class="tiles board-tiles">
   <div class="tile hero">
     <span class="tile-label">В очереди</span>

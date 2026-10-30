@@ -15,6 +15,7 @@ from core.services import analytics
 from core.services import board as board_service
 from core.services import catalog as catalog_service
 from core.services import orders as orders_service
+from core.services import refunds as refunds_service
 from core.services import settings as settings_service
 from web.security import CurrentAdmin, CurrentAdminApi, DbSession, csrf_token, verify_csrf
 from web.templating import render
@@ -40,6 +41,7 @@ async def show_board(request: Request, session: DbSession, admin: CurrentAdmin):
         request,
         "admin/board.html",
         {
+            "refunds_pending": await _refunds_pending(session, admin),
             "columns": columns,
             "metrics": metrics,
             "plan": plan,
@@ -67,6 +69,7 @@ async def show_home(request: Request, session: DbSession, admin: CurrentAdmin):
     plan = await analytics.production_plan(session, calendar=calendar, days=14)
 
     context = {
+        "refunds_pending": await _refunds_pending(session, admin),
         "metrics": metrics,
         "plan": plan,
         "today": today,
@@ -120,6 +123,11 @@ async def show_calendar(
             "csrf_token": csrf_token(request),
         },
     )
+
+
+async def _refunds_pending(session, admin) -> int:
+    """Сколько возвратов ждёт владелицу — плашка над доской. Сборщику деньги не видны."""
+    return await refunds_service.count_pending(session) if admin.is_owner else 0
 
 
 class BoardMove(BaseModel):

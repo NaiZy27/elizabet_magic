@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from html import escape
+
 from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -51,11 +53,11 @@ async def nearest_points(message: Message, state: FSMContext, session: AsyncSess
     lines = ["<b>📍 Ближайшие пункты</b>", ""]
     for point, km in found:
         lines.append(
-            f"{provider_icon(point.provider)} <b>{truncate(point.address, 90)}</b>"
+            f"{provider_icon(point.provider)} <b>{escape(truncate(point.address, 90))}</b>"
             f" · {_format_distance(km)}",
         )
         if point.working_hours:
-            lines.append(f"   🕒 {truncate(point.working_hours, 80)}")
+            lines.append(f"   🕒 {escape(truncate(point.working_hours, 80))}")
 
     await ui.reply(message, text="\n".join(lines), keyboard=_points_keyboard(found))
 

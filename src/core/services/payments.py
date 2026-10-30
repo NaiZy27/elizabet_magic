@@ -16,8 +16,9 @@
 возвращается в работу (если его отменили мы по сроку оплаты), либо владелица
 получает сигнал вернуть деньги.
 
-Возвратов в системе нет: клиент пишет в поддержку, владелица возвращает деньги
-в кабинете Робокассы и аннулирует чек в «Мой налог», а заказ отменяет в панели.
+Возвратов через API в системе нет: клиент пишет в поддержку, владелица возвращает
+деньги в кабинете Робокассы и аннулирует чек в «Мой налог», а заказ отменяет в панели.
+Кому вернуть, помнит список «к возврату» (core.services.refunds).
 """
 
 from __future__ import annotations
@@ -39,11 +40,12 @@ from core.enums import (
     PaymentProvider,
     PaymentStatus,
     ProviderEnvironment,
+    RefundReason,
 )
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.models import Order, Payment
 from core.money import format_rubles
-from core.services import notifications, receipts, robokassa
+from core.services import notifications, receipts, refunds, robokassa
 from core.services import orders as orders_service
 
 logger = logging.getLogger(__name__)
@@ -207,7 +209,9 @@ async def confirm_payment(
     )
     await session.refresh(payment)
 
-    if payment.status == PaymentStatus.PAID:
+    if payment.status == PaymentStatus.PAID or payment.paid_at is not None:
+        # Повтор уведомления. paid_at — для второй оплаты уже оплаченного заказа: она
+        # остаётся «отменённой» попыткой, но деньги по ней уже записаны и в списке возвратов.
         return payment
     if amount_kopecks is not None and amount_kopecks != payment.amount_kopecks:
         raise ValidationError("Оплаченная сумма не совпадает с суммой заказа")
@@ -265,13 +269,16 @@ async def _accept_late_payment(
         # фиксируем её и чек, владелице нужен возврат.
         payment.status = PaymentStatus.PAID
         problem = "заказ был отменён до оплаты"
+        reason = RefundReason.PAID_AFTER_CANCEL
     else:
         # Заказ уже оплачен другой попыткой: вторую оплату держим отдельно.
         problem = "заказ уже был оплачен — это повторная оплата"
+        reason = RefundReason.DUPLICATE_PAYMENT
     _fill_paid(payment, external_id=external_id, raw_result=raw_result, fee_kopecks=fee_kopecks)
     await session.flush()
     if payment.status == PaymentStatus.PAID:
         await receipts.create_for_payment(session, payment, order)
+    await refunds.require(session, payment, order, reason, actor=actor)
 
     await orders_service.log_event(
         session,
@@ -285,7 +292,8 @@ async def _accept_late_payment(
         session,
         f"⚠️ Пришла оплата {format_rubles(payment.amount_kopecks)} по заказу "
         f"{order.admin_label}, но {problem}. Верните деньги клиенту в кабинете "
-        "Робокассы и аннулируйте чек в «Мой налог».",
+        "Робокассы, аннулируйте чек в «Мой налог» и отметьте возврат в панели: "
+        "«Статистика» → «Возвраты».",
     )
     return payment
 
@@ -395,9 +403,20 @@ async def reconcile(session: AsyncSession, payment_id: int) -> bool:
     if state is None or not state.is_paid:
         return False
 
-    paid_before = await session.scalar(select(Payment.paid_at).where(Payment.id == payment_id))
-    if paid_before is not None:
+    payment = await session.get(Payment, payment_id)
+    if payment is None or payment.paid_at is not None:
         # Пока мы спрашивали, пришло уведомление — оплата уже проведена.
+        return False
+    if not is_same_operation(state, payment):
+        logger.error(
+            "Сверка: счёт %s оплачен в Робокассе %s на %s, а у нас выставлен %s на %s — "
+            "похоже, это старая операция с тем же номером. Оплату не проводим.",
+            payment_id,
+            state.request_date,
+            state.inc_sum,
+            payment.checkout_started_at,
+            format_rubles(payment.amount_kopecks),
+        )
         return False
     payment = await confirm_payment(
         session,
@@ -422,6 +441,26 @@ async def reconcile(session: AsyncSession, payment_id: int) -> bool:
         "в технических настройках магазина.",
     )
     return True
+
+
+#: Запас на расхождение часов нашего сервера и Робокассы.
+CLOCK_SLACK = dt.timedelta(hours=1)
+
+
+def is_same_operation(state: robokassa.OperationState, payment: Payment) -> bool:
+    """Оплата в Робокассе — по этой попытке, а не старая операция с тем же номером счёта.
+
+    Номер счёта — id попытки. Если базу создадут заново (новый сервер, новый том без
+    восстановления дампа), номера начнутся с 1 и совпадут с прошлыми оплатами в кассе:
+    без этой проверки сверка провела бы новый заказ по чужим деньгам. Чужая операция
+    создана раньше, чем клиент ушёл в кассу, или на меньшую сумму. Комиссию может
+    платить покупатель, поэтому сумма — «не меньше», а не «равна».
+    """
+    if state.request_date is None or state.inc_sum is None or payment.checkout_started_at is None:
+        return False
+    if state.request_date < payment.checkout_started_at - CLOCK_SLACK:
+        return False
+    return robokassa.parse_out_sum(state.inc_sum) >= payment.amount_kopecks
 
 
 def mark_checkout_started(payment: Payment, order: Order) -> dict[str, str]:

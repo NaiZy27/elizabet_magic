@@ -5,12 +5,17 @@ StrictUndefined: опечатка в плейсхолдере видна сра�
 когда клиенту уходит «Заказ  готов».
 
 Само сообщение отправляет фоновая задача и только после успешного коммита: запись
-в базе можно откатить, отправленное сообщение — нет.
+в базе можно откатить, отправленное сообщение — нет (см. core.services.outbox).
+
+Сообщения уходят в Telegram как HTML. Шаблон пишет владелица и может ставить в нём
+теги (<b>), а вот подставленные значения — адрес, имя, название бокса — экранируются:
+«<» в адресе, который клиент ввёл сам, иначе ломал бы всё сообщение.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import html
 import logging
 from typing import Any
 
@@ -20,11 +25,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.clock import format_date, format_datetime
-from core.db import after_commit
-from core.enums import MessageTemplateKey
+from core.enums import MessageTemplateKey, OutboxKind
 from core.errors import ValidationError
 from core.models import MessageTemplate, Order, OrderItem
 from core.money import format_rubles
+from core.services import outbox
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +163,7 @@ def has_video(order: Order) -> bool:
 
 
 def build_context(order: Order, **extra: Any) -> dict[str, Any]:
-    """Значения плейсхолдеров для конкретного заказа."""
+    """Значения плейсхолдеров для конкретного заказа, уже экранированные для HTML."""
     snapshot = order.pickup_snapshot or {}
     context: dict[str, Any] = {
         "order_number": order.display_number,
@@ -185,27 +190,33 @@ def build_context(order: Order, **extra: Any) -> dict[str, Any]:
         "pay_deadline": format_datetime(order.expires_at) if order.expires_at else "",
     }
     context.update(extra)
-    return context
+    # Состав уже собран с экранированием — второй раз «&» превратился бы в «&amp;amp;».
+    return {
+        name: html.escape(value, quote=False)
+        if isinstance(value, str) and name != "items"
+        else value
+        for name, value in context.items()
+    }
 
 
 def describe_item(item: OrderItem) -> str:
-    """Один бокс строкой: «Маленький бокс — 3 ложечки + видео сборки»."""
-    text = item.name_snapshot
+    """Один бокс строкой для Telegram-HTML: «Маленький бокс — 3 ложечки + видео сборки»."""
+    text = html.escape(item.name_snapshot, quote=False)
     if item.quantity > 1:
         text = f"{text} × {item.quantity}"
     for addon in item.addons:
-        text = f"{text} + {addon.name_snapshot.lower()}"
+        text = f"{text} + {html.escape(addon.name_snapshot.lower(), quote=False)}"
     return text
 
 
 def describe_items(order: Order) -> str:
-    """Состав заказа строками. Если боксов несколько — с номерами, как в корзине."""
+    """Состав заказа строками, готовыми для Telegram-HTML. Несколько боксов — с номерами."""
     items = list(order.items)
     if len(items) == 1:
         lines = [describe_item(items[0])]
     else:
         lines = [f"{index}. {describe_item(item)}" for index, item in enumerate(items, start=1)]
-    lines.extend(addon.name_snapshot for addon in order.order_addons)
+    lines.extend(html.escape(addon.name_snapshot, quote=False) for addon in order.order_addons)
     return "\n".join(lines)
 
 
@@ -223,13 +234,16 @@ async def render_for_order(
     **extra: Any,
 ) -> str | None:
     """Готовый текст уведомления или None, если шаблон выключен в админке."""
+    text = await template_text(session, key)
+    return render(text, build_context(order, **extra)) if text else None
+
+
+async def template_text(session: AsyncSession, key: MessageTemplateKey) -> str | None:
+    """Текст шаблона из админки (или стандартный). None — шаблон выключен."""
     template = await get_template(session, key)
-    text = template.text if template is not None else DEFAULT_TEMPLATES.get(key)
     if template is not None and not template.is_enabled:
         return None
-    if not text:
-        return None
-    return render(text, build_context(order, **extra))
+    return (template.text if template is not None else DEFAULT_TEMPLATES.get(key)) or None
 
 
 def schedule_customer_notification(
@@ -238,58 +252,44 @@ def schedule_customer_notification(
     key: MessageTemplateKey,
     **extra: Any,
 ) -> None:
-    """Поставить отправку уведомления в очередь — после успешного коммита."""
-    order_id = order.id
-    payload = _jsonable(extra)
+    """Поставить уведомление клиенту в очередь. Уйдёт после успешного коммита.
 
-    async def _enqueue() -> None:
-        # Импорт внутри: core не должен зависеть от worker на уровне модуля.
-        from worker.tasks.notify import notify_customer
-
-        await notify_customer.kiq(order_id=order_id, template_key=key.value, extra=payload)
-
-    after_commit(session, _enqueue)
+    Значения для текста снимаются сейчас, а не при отправке: если воркер лежал и
+    сообщения ушли позже, клиент получит «собирается» с данными того момента, а не
+    с пунктом или датой, которые успели поменяться.
+    """
+    context = _jsonable(build_context(order, **extra))
+    outbox.enqueue(
+        session,
+        OutboxKind.CUSTOMER,
+        {"order_id": order.id, "template": key.value, "context": context},
+    )
 
 
 def schedule_owner_notification(session: AsyncSession, order: Order) -> None:
     """Сообщить владелице о новом оплаченном заказе."""
-    order_id = order.id
-
-    async def _enqueue() -> None:
-        from worker.tasks.notify import notify_owner
-
-        await notify_owner.kiq(order_id=order_id)
-
-    after_commit(session, _enqueue)
+    outbox.enqueue(session, OutboxKind.OWNER_ORDER, {"order_id": order.id})
 
 
 def schedule_owner_text(session: AsyncSession, text: str) -> None:
     """Служебное сообщение владелице — о том, что требует её внимания."""
+    outbox.enqueue(session, OutboxKind.OWNER_TEXT, {"text": text})
 
-    async def _enqueue() -> None:
-        from worker.tasks.notify import notify_owner_text
 
-        await notify_owner_text.kiq(text=text)
-
-    after_commit(session, _enqueue)
+def schedule_alert(session: AsyncSession, text: str) -> None:
+    """Техническая тревога — в чат ALERT_CHAT_ID (по умолчанию владелице)."""
+    outbox.enqueue(session, OutboxKind.ALERT, {"text": text})
 
 
 def schedule_strip_buttons(session: AsyncSession, order: Order) -> None:
     """Снять кнопки «Оплатить» / «Отменить» со всех сообщений бота по заказу."""
     if not order.bot_messages:
         return
-    order_id = order.id
-
-    async def _enqueue() -> None:
-        from worker.tasks.notify import strip_order_buttons
-
-        await strip_order_buttons.kiq(order_id=order_id)
-
-    after_commit(session, _enqueue)
+    outbox.enqueue(session, OutboxKind.STRIP_BUTTONS, {"order_id": order.id})
 
 
 def _jsonable(extra: dict[str, Any]) -> dict[str, Any]:
-    """Привести добавки к тому, что переживёт сериализацию задачи в Redis."""
+    """Привести значения к тому, что переживёт сохранение в JSONB."""
     payload: dict[str, Any] = {}
     for name, value in extra.items():
         if isinstance(value, dt.datetime | dt.date):

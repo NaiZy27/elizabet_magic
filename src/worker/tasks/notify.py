@@ -1,9 +1,11 @@
-"""Задачи отправки сообщений: клиенту по статусам заказа, владелице, снятие старых кнопок.
+"""Отправка сообщений: клиенту по статусам заказа, владелице, тревоги, снятие старых кнопок.
+
+Это не задачи, а обработчики сообщений из очереди `outbox` (см. worker.tasks.outbox):
+вернулись без ошибки — отправлено; `PermanentError` — повторять бессмысленно;
+любое другое исключение — сбой, сообщение отправится повторно позже.
 
 Отправка идёт вне транзакции: сначала читаем и собираем текст, потом отправляем,
-потом отдельной короткой транзакцией пишем результат в историю заказа. Так запись
-о неудаче не откатывается вместе с ошибкой, а повтор задачи (retry_on_error) не
-зависит от того, успела ли база что-то записать.
+потом отдельной короткой транзакцией пишем результат в историю заказа.
 """
 
 from __future__ import annotations
@@ -28,7 +30,6 @@ from core.errors import NotFoundError
 from core.models import Customer, Order
 from core.money import format_rubles
 from core.services import notifications, orders, shipments
-from worker.broker import broker
 from worker.telegram import get_bot
 
 logger = logging.getLogger(__name__)
@@ -37,23 +38,25 @@ logger = logging.getLogger(__name__)
 _MAX_RETRY_WAIT_SECONDS = 60
 
 
-@broker.task(retry_on_error=True)
+class PermanentError(Exception):
+    """Сообщение не доставить, и повтор не поможет: бот заблокирован, текст отклонён."""
+
+
 async def notify_customer(
     order_id: int,
     template_key: str,
-    extra: dict[str, Any] | None = None,
+    context: dict[str, Any],
 ) -> None:
     """Отправить клиенту сообщение по шаблону.
 
-    Задача ставится после коммита, поэтому заказ уже точно сохранён. Сетевые сбои
-    и ответы 5xx повторяются брокером; «бот заблокирован» и «чат не найден» — нет:
-    повтор тут не поможет.
+    `context` — значения на момент события (снимает notifications при постановке в очередь).
+    Сетевые сбои и ответы 5xx повторяются очередью; «бот заблокирован» и «чат
+    не найден» — нет: повтор тут не поможет.
     """
     try:
         key = MessageTemplateKey(template_key)
     except ValueError:
-        logger.error("Неизвестный шаблон уведомления: %s", template_key)
-        return
+        raise PermanentError(f"неизвестный шаблон уведомления: {template_key}") from None
 
     async with session_scope() as session:
         try:
@@ -61,7 +64,8 @@ async def notify_customer(
         except NotFoundError:
             logger.warning("Заказ %s исчез до отправки уведомления", order_id)
             return
-        text = await notifications.render_for_order(session, order, key, **(extra or {}))
+        template = await notifications.template_text(session, key)
+        text = notifications.render(template, context) if template else None
         chat_id = order.customer.telegram_user_id
         customer_id = order.customer_id
 
@@ -77,15 +81,11 @@ async def notify_customer(
             customer = await session.get(Customer, customer_id)
             if customer is not None:
                 customer.bot_blocked_at = now_utc()
-        return
+        raise PermanentError("бот заблокирован клиентом") from None
     except TelegramBadRequest as error:
         logger.error("Telegram отклонил уведомление по заказу %s: %s", order_id, error)
         await _record(order_id, key, sent=False, reason=f"Telegram: {error.message}")
-        return
-    except Exception as error:
-        logger.exception("Не удалось отправить уведомление по заказу %s", order_id)
-        await _record(order_id, key, sent=False, reason=f"{type(error).__name__}, будет повтор")
-        raise
+        raise PermanentError(f"Telegram отклонил сообщение: {error.message}") from error
 
     await _record(order_id, key, sent=True)
 
@@ -114,14 +114,12 @@ async def _record(
         logger.exception("Не удалось записать результат уведомления по заказу %s", order_id)
 
 
-@broker.task(retry_on_error=True)
 async def notify_owner(order_id: int) -> None:
     """Короткая карточка нового оплаченного заказа — владелице."""
     settings = get_settings()
     chat_id = settings.owner.owner_chat_id
     if chat_id is None:
-        logger.warning("OWNER_CHAT_ID не задан — владелице не о чем сообщать")
-        return
+        raise PermanentError("OWNER_CHAT_ID не задан — владелице не о чем сообщать")
 
     async with session_scope() as session:
         try:
@@ -149,26 +147,34 @@ async def notify_owner(order_id: int) -> None:
         lines.append(f"{settings.admin_base_url}/admin/orders/{order.id}")
         text = "\n".join(lines)
 
-    try:
-        await _send(chat_id, text)
-    except TelegramForbiddenError:
-        logger.error("Владелица не нажала /start в боте — уведомления ей не дойдут")
+    await _send_to_staff(chat_id, text)
 
 
-@broker.task(retry_on_error=True)
 async def notify_owner_text(text: str) -> None:
-    """Служебное сообщение владелице (оплата после отмены, проблема с доставкой)."""
+    """Служебное сообщение владелице (оплата после отмены, данные для отправки)."""
     chat_id = get_settings().owner.owner_chat_id
     if chat_id is None:
-        logger.warning("OWNER_CHAT_ID не задан, сообщение владелице потеряно: %s", text)
-        return
+        raise PermanentError("OWNER_CHAT_ID не задан, сообщение владелице не отправить")
+    await _send_to_staff(chat_id, text)
+
+
+async def notify_alert(text: str) -> None:
+    """Техническая тревога — в ALERT_CHAT_ID, а если он не задан — владелице."""
+    chat_id = get_settings().owner.alert_chat
+    if chat_id is None:
+        raise PermanentError("ни ALERT_CHAT_ID, ни OWNER_CHAT_ID не заданы")
+    await _send_to_staff(chat_id, f"⚙️ {text}")
+
+
+async def _send_to_staff(chat_id: int, text: str) -> None:
+    """Сообщение своим: если владелица не открыла бота, повторять бесполезно."""
     try:
         await _send(chat_id, text)
     except TelegramForbiddenError:
-        logger.error("Владелица не нажала /start в боте — уведомления ей не дойдут")
+        logger.error("Чат %s не нажал /start в боте — служебные сообщения не дойдут", chat_id)
+        raise PermanentError("получатель не открыл бота (/start)") from None
 
 
-@broker.task(retry_on_error=True)
 async def strip_order_buttons(order_id: int) -> None:
     """Снять кнопки «Оплатить» / «Отменить» с сообщений по оплаченному или отменённому заказу.
 
@@ -218,7 +224,10 @@ async def strip_order_buttons(order_id: int) -> None:
             logger.debug("Кнопки у сообщения %s не сняты: %s", message_id, error)
 
     async with session_scope() as session:
-        order = await orders.get_order(session, order_id)
+        try:
+            order = await orders.get_order(session, order_id)
+        except NotFoundError:
+            return
         # Оставляем только то, что появилось, пока мы снимали кнопки.
         order.bot_messages = [entry for entry in order.bot_messages if entry not in messages]
 

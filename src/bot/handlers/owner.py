@@ -12,6 +12,7 @@ Telegram. Мы храним только его, поэтому фото пок�
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
@@ -127,7 +128,7 @@ async def pick_product(
     current = "Сейчас фото есть — пришлите новое, чтобы заменить." if product.photo_file_id else ""
     await ui.reply(
         callback,
-        text=f"<b>{product.name}</b>\n\nПришлите фотографию сообщением.\n{current}".strip(),
+        text=f"<b>{escape(product.name)}</b>\n\nПришлите фотографию сообщением.\n{current}".strip(),
         keyboard=kb.photo_actions(product.id, has_photo=bool(product.photo_file_id)),
     )
     if product.photo_file_id:
@@ -150,7 +151,7 @@ async def receive_photo(message: Message, state: FSMContext, session: AsyncSessi
     await state.clear()
     await ui.reply(
         message,
-        text=f"Готово: фото для «{product.name}» обновлено.",
+        text=f"Готово: фото для «{escape(product.name)}» обновлено.",
         keyboard=kb.owner_menu(),
     )
 
@@ -178,7 +179,7 @@ async def clear_photo(
     if callback.message is not None:
         await ui.reply(
             callback,
-            text=f"<b>{product.name}</b>\n\nФото убрано — бот покажет бокс без картинки.",
+            text=f"<b>{escape(product.name)}</b>\n\nФото убрано — бот покажет бокс без картинки.",
             keyboard=kb.photo_actions(product.id, has_photo=False),
         )
 

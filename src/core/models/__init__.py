@@ -15,7 +15,8 @@ from core.models.orders import (
     OrderItem,
     order_number_seq,
 )
-from core.models.payments import Payment, Receipt
+from core.models.outbox import OutboxMessage
+from core.models.payments import Payment, Receipt, Refund
 from core.models.settings import AdminUser, MessageTemplate, Setting
 
 __all__ = [
@@ -31,11 +32,13 @@ __all__ = [
     "OrderAddon",
     "OrderEvent",
     "OrderItem",
+    "OutboxMessage",
     "Payment",
     "PickupPoint",
     "Product",
     "ProductVariant",
     "Receipt",
+    "Refund",
     "Setting",
     "Shipment",
     "order_number_seq",

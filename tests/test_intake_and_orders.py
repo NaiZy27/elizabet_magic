@@ -8,7 +8,7 @@ from core.enums import CancelReason, OrderStatus
 from core.models import Order
 from core.schemas.settings import IntakeSettings
 from core.services.intake import free_slot_date, promised_date
-from core.services.orders import can_revive, is_valid_email
+from core.services.orders import can_revive, is_valid_email, normalize_phone
 
 
 def test_free_slot_after_enough_orders_finish(workdays, monday):
@@ -70,6 +70,38 @@ def test_email_check_catches_typos():
     assert not is_valid_email("anna mail@mail.ru")
     assert not is_valid_email("anna@@mail.ru")
     assert not is_valid_email("@mail.ru")
+    assert is_valid_email("anna_k+box@sub.mail-server.com")
+    assert is_valid_email("anna@xn--80a1acny.xn--p1ai")
+    for typo in (
+        "anna@mail.r",
+        "anna@mail..ru",
+        "anna..k@mail.ru",
+        ".anna@mail.ru",
+        "anna.@mail.ru",
+        "anna@-mail.ru",
+        "anna@mail.ru.",
+        "анна@mail.ru",
+        "anna@почта.рф",
+        "anna,k@mail.ru",
+        "anna@mail.ru, вторая@mail.ru",
+        "a" * 250 + "@mail.ru",
+    ):
+        assert not is_valid_email(typo), typo
+
+
+def test_phone_is_normalized_to_plus_seven():
+    for value in ("+7 900 123-45-67", "8 (900) 123 45 67", "9001234567", "79001234567"):
+        assert normalize_phone(value) == "+79001234567"
+    for value in (
+        "",
+        None,
+        "+7 900 123-45-67, звонить после 18",
+        "900 123 45",
+        "+375 29 123-45-67",
+        "+8 900 123-45-67",
+        "8 900 123-45-67-89",
+    ):
+        assert normalize_phone(value) is None
 
 
 def _order(**fields) -> Order:

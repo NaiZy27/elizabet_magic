@@ -201,8 +201,9 @@ def login_redirect(next_url: str | None) -> RedirectResponse:
 
 
 def is_safe_next(value: str) -> bool:
-    """Возвращаем только на свои страницы: «//example.com» — чужой сайт."""
-    return value.startswith("/") and not value.startswith("//")
+    """Возвращаем только на свои страницы: «//example.com» — чужой сайт, и «/\\example.com»
+    тоже — браузер читает обратную косую как прямую."""
+    return value.startswith("/") and not value.startswith("//") and "\\" not in value
 
 
 #: Готовые зависимости. CurrentAdmin — любой вошедший (владелица или сборщик),

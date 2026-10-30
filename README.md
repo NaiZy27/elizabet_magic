@@ -58,10 +58,10 @@ make admin u=elizabet        # логин владелицы, пароль сп�
 |---|---|
 | `make up` / `make down` | поднять / остановить всё |
 | `make logs` | логи всех контейнеров |
-| `make migrate` | применить миграции |
+| `make migrate` | пересобрать образы и применить миграции (после — `docker compose up -d`) |
 | `make revision m="что поменяли"` | создать миграцию по изменениям в моделях |
 | `make seed` / `make seed-demo` | стартовые данные (и тестовые ПВЗ) |
-| `make test` | тесты |
+| `make test` | тесты (локально, база не нужна) |
 | `make lint` / `make fmt` | проверка и форматирование (ruff) |
 | `make psql` | консоль базы |
 | `make backup` | дамп базы |
@@ -126,6 +126,7 @@ docker compose run --rm web python -m web.create_admin elizabet
 | `ADMIN_HTTPS_ONLY` | `true` |
 | `ADMIN_SESSION_SECRET` | длинная случайная строка |
 | `PAYMENTS_MODE` | `stub` на тестовом контуре, `robokassa` — когда подключим приём денег |
+| `ALERT_CHAT_ID` | необязательно: кому слать технические тревоги (см. «Мониторинг»), по умолчанию владелице |
 
 С `PAYMENTS_MODE=stub` ключи Робокассы не нужны, но оплата не настоящая: кнопка на
 странице оплаты просто отмечает заказ оплаченным. Каждый процесс пишет об этом
@@ -137,12 +138,41 @@ docker compose run --rm web python -m web.create_admin elizabet
 ./deploy/render-nginx.sh домен crm.домен     # готовые файлы — в deploy/nginx/out/
 ```
 
-Обновление на сервере:
+Обновление на сервере — **вне рабочего времени**, порядок важен: сначала собрать
+образы, потом применить миграции **новым** образом и только потом перезапустить
+процессы. Иначе новый код несколько секунд работает со старой схемой базы, а миграция
+из старого образа не видит новых файлов.
 
 ```bash
-git pull && docker compose up -d --build
+git pull
+docker compose build
 docker compose run --rm web alembic upgrade head
+docker compose up -d
 ```
+
+То же короче: `git pull && make migrate && docker compose up -d`.
+
+Воркер при остановке до 30 секунд доделывает начатые задачи. Сообщения клиентам
+и владелице не теряются в любом случае: они лежат в таблице `outbox`, пока не
+отправлены, и уходят после перезапуска.
+
+## Мониторинг
+
+[deploy/healthcheck.sh](deploy/healthcheck.sh) раз в 5 минут проверяет, что все
+контейнеры запущены и здоровы, сообщения не застряли в очереди, на диске есть место
+и бэкап свежий. Пишет в Telegram только при изменении: «⚠️ проблема» и «✅ снова
+в порядке». Куда — `ALERT_CHAT_ID` (обычно разработчику), по умолчанию `OWNER_CHAT_ID`.
+Туда же воркер присылает ошибки ночного обновления пунктов выдачи.
+
+```bash
+crontab -e
+# */5 * * * * cd /opt/elizabet-magic && ./deploy/healthcheck.sh >> /var/log/em-health.log 2>&1
+```
+
+Healthcheck контейнеров (`docker compose ps` — колонка STATUS): `web` отвечает на
+`/healthz`, `bot` и `worker` раз в минуту отмечают «пульс» (`core/health.py`). Пульс
+воркера ставит задача планировщика, поэтому «worker unhealthy» значит, что завис
+воркер или планировщик.
 
 ## Бэкапы
 
@@ -168,14 +198,33 @@ crontab -e
 # 0 3 * * * cd /opt/elizabet-magic && ./deploy/backup.sh >> /var/log/em-backup.log 2>&1
 ```
 
-Восстановление из копии:
+Если задан `BACKUP_PASSPHRASE`, в Telegram приходит `….sql.gz.enc` — расшифровать
+(на сервере или на Маке, встроенный openssl подходит; спросит фразу):
 
 ```bash
-# если файл зашифрован
-openssl enc -d -aes-256-cbc -pbkdf2 -in em-2026-09-24.sql.gz.enc -out em.sql.gz
+openssl enc -d -aes-256-cbc -pbkdf2 -in em-2026-09-24_03-00-00.sql.gz.enc -out em.sql.gz
+```
 
+Копии на диске сервера (`/var/backups/elizabet-magic`) не шифруются — фраза защищает
+только копию в Telegram. Файл с Мака на сервер: `scp em.sql.gz root@<сервер>:/root/`.
+
+Проверить, что копия разворачивается, — в отдельную базу, рабочая не трогается:
+
+```bash
+docker compose exec -T postgres createdb -U em restore_check
+gunzip -c em.sql.gz | docker compose exec -T postgres psql -U em -d restore_check -q -v ON_ERROR_STOP=1
+docker compose exec -T postgres psql -U em -d restore_check -c "select count(*) from orders"
+docker compose exec -T postgres dropdb -U em restore_check
+```
+
+Восстановить рабочую базу из копии. Дамп снимается без команд удаления, поэтому поверх
+существующих таблиц его не влить — базу пересоздаём. Всё, что было после копии, пропадёт:
+
+```bash
 docker compose stop web bot worker scheduler
-gunzip -c em.sql.gz | docker compose exec -T postgres psql -U em -d elizabet_magic
+docker compose exec -T postgres dropdb -U em elizabet_magic
+docker compose exec -T postgres createdb -U em elizabet_magic
+gunzip -c em.sql.gz | docker compose exec -T postgres psql -U em -d elizabet_magic -q -v ON_ERROR_STOP=1
 docker compose start web bot worker scheduler
 ```
 
@@ -219,9 +268,12 @@ POST-форму с чеком — бокс, каждая услуга и дос�
 В тестовом режиме (`ROBOKASSA_IS_TEST=true`) сверка выключена: OpStateExt не видит
 тестовых оплат.
 
-**Возвратов в системе нет.** Клиент пишет через «📞 Связаться с нами», владелица
-возвращает деньги в кабинете Робокассы, аннулирует чек в «Мой налог» и отменяет
-заказ в панели («Сроки и отмена» → «Отменить»).
+**Возвраты.** Через API их нет: клиент пишет через «📞 Связаться с нами», владелица
+отменяет заказ в панели («Сроки и отмена» → «Отменить»), возвращает деньги в кабинете
+Робокассы и аннулирует чек в «Мой налог». Кому вернуть, помнит список «Статистика» →
+«Возвраты»: туда сами попадают отменённые оплаченные заказы, оплаты, пришедшие после
+отмены, и повторные оплаты. Пока в списке есть невозвращённые, над доской висит
+напоминание; после возврата владелица отмечает «Деньги вернула».
 
 **Проверка настоящими деньгами.** `PAYMENTS_TEST_AMOUNT_KOPECKS=100` в `.env` (вместе
 с боевыми паролями и `ROBOKASSA_IS_TEST=false`): каждая строка чека стоит 1 ₽ —
@@ -262,8 +314,10 @@ docker compose exec web python -m core.cleanup --apply      # удалить
 пункта вручную» спрашивает службу, «в Москве или в другом городе» (от этого цена) и
 адрес текстом. Владелица получает адрес как есть с пометкой «адрес клиент ввёл сам».
 
-**Пункты выдачи** всех служб обновляются сами каждый понедельник ночью из открытых
-источников, без ключей:
+**Пункты выдачи** всех служб обновляются сами раз в неделю, ночью (00:40 по Москве), из
+открытых источников, без ключей. Задача запускается каждую ночь и берёт службы, которые
+не обновлялись неделю: если загрузку оборвал деплой или источник не ответил, она
+повторится следующей ночью, а в `ALERT_CHAT_ID` придёт сообщение об ошибке. Источники:
 
 | Служба | Источник | Что берём |
 |---|---|---|

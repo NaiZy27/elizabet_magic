@@ -10,7 +10,7 @@
   котором стоит пункт. Данные волонтёров: часть пунктов Ozon в OSM нет, но Москва и
   крупные города покрыты хорошо. Сайт и карта самого Ozon без ключей не отдаются.
 
-Обновление раз в неделю (worker.tasks.pickup) и вручную:
+Обновление раз в неделю (worker.tasks.pickup, с повтором следующей ночью при сбое) и вручную:
 
     python -m core.services.pickup_sync cdek yandex ozon
 
@@ -539,6 +539,30 @@ async def _upsert(
     )
 
 
+async def providers_due(
+    session: AsyncSession,
+    *,
+    older_than: dt.timedelta,
+) -> list[DeliveryProviderCode]:
+    """Службы, которые пора обновить: успешного обновления не было `older_than`."""
+    synced = dict(
+        (
+            await session.execute(
+                select(DeliveryProvider.code, DeliveryProvider.pickup_points_synced_at)
+            )
+        ).all(),
+    )
+    threshold = now_utc() - older_than
+    return [code for code in SOURCES if synced.get(code) is None or synced[code] < threshold]
+
+
+def unique_rows(rows: list[PointRow]) -> list[PointRow]:
+    """Один пункт — одна строка. Пункт на границе регионов Overpass отдаёт дважды, а две
+    строки с одним кодом в одном INSERT … ON CONFLICT Postgres не примет — упала бы вся
+    многочасовая загрузка. Оставляем последнюю."""
+    return list({row.external_id: row for row in rows}.values())
+
+
 async def sync_provider(provider: DeliveryProviderCode) -> Counter:
     """Обновить справочник одной службы.
 
@@ -555,6 +579,7 @@ async def sync_provider(provider: DeliveryProviderCode) -> Counter:
     try:
         async for batch in SOURCES[provider](failed):
             rows.extend(batch)
+        rows = unique_rows(rows)
         stats["получено"] = len(rows)
         synced_at = now_utc()
 
@@ -565,7 +590,9 @@ async def sync_provider(provider: DeliveryProviderCode) -> Counter:
                     PickupPoint.is_active.is_(True),
                 ),
             )
-            if not failed and len(rows) < (known or 0) * MIN_SHARE_OF_KNOWN:
+            # И при непрочитанных регионах: иначе «все регионы Ozon упали» засчиталось бы
+            # успешным обновлением, и повтор был бы только через неделю.
+            if len(rows) < (known or 0) * MIN_SHARE_OF_KNOWN:
                 raise ExternalServiceError(
                     f"источник отдал {len(rows)} пунктов при {known} известных — "
                     "похоже, он сломался; ничего не выключаем",

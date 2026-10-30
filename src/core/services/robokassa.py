@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -37,6 +38,7 @@ from urllib.parse import quote
 
 import httpx
 
+from core.clock import moscow
 from core.config import get_settings
 from core.errors import ExternalServiceError, ValidationError
 from core.models import Order, Payment
@@ -202,6 +204,8 @@ class OperationState:
     #: Сумма, которую заплатил клиент, — как её прислала Робокасса.
     inc_sum: str | None
     payment_method: str | None
+    #: Когда операция создана в Робокассе (State/RequestDate).
+    request_date: dt.datetime | None = None
 
     @property
     def is_paid(self) -> bool:
@@ -238,7 +242,20 @@ def parse_operation_state(body: str) -> OperationState | None:
         code=code,
         inc_sum=_xml_text(root, "{*}Info/{*}IncSum"),
         payment_method=_xml_text(root, "{*}Info/{*}PaymentMethod/{*}Code"),
+        request_date=_xml_datetime(root, "{*}State/{*}RequestDate"),
     )
+
+
+def _xml_datetime(root: ET.Element, path: str) -> dt.datetime | None:
+    """Дата из ответа. Без часового пояса — московское время: Робокасса работает по Москве."""
+    value = _xml_text(root, path)
+    try:
+        moment = dt.datetime.fromisoformat(value) if value is not None else None
+    except ValueError:
+        return None
+    if moment is not None and moment.tzinfo is None:
+        moment = moment.replace(tzinfo=moscow())
+    return moment
 
 
 def _xml_text(root: ET.Element, path: str) -> str | None:

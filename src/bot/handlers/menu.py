@@ -114,7 +114,7 @@ async def show_prices(event: Event, session: AsyncSession) -> None:
 
     blocks: list[str] = ["<b>💰 Цены</b>"]
     for product in products:
-        lines = [f"\n<b>{product.name}</b>"]
+        lines = [f"\n<b>{escape(product.name)}</b>"]
         for variant in active_variants(product.variants):
             lines.append(
                 f"{spoons_phrase(variant.spoon_count)} — {format_rubles(variant.price_kopecks)}"
@@ -126,7 +126,7 @@ async def show_prices(event: Event, session: AsyncSession) -> None:
     addons = await catalog.list_active_addons(session)
     for addon in addons:
         suffix = "за бокс" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
-        blocks.append(f"\n{addon.name} — +{format_rubles(addon.price_kopecks)} {suffix}")
+        blocks.append(f"\n{escape(addon.name)} — +{format_rubles(addon.price_kopecks)} {suffix}")
 
     providers = await delivery.enabled_providers(session)
     if providers:

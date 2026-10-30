@@ -52,6 +52,9 @@ async def _form(request: Request) -> dict[str, str]:
 @webhooks.api_route("/robokassa/result", methods=["GET", "POST"])
 async def robokassa_result(request: Request, session: DbSession):
     """ResultURL: Робокасса сообщает об оплате. Ответ «OK<InvId>» — «принято»."""
+    if not get_settings().payments_are_real:
+        # С заглушкой пароль №2 обычно пустой, и подпись «сумма:счёт:» посчитает кто угодно.
+        return PlainTextResponse("payments disabled", status_code=status.HTTP_404_NOT_FOUND)
     data = await _form(request)
     out_sum = data.get("OutSum", "")
     inv_id = data.get("InvId", "")
@@ -77,6 +80,9 @@ async def robokassa_result(request: Request, session: DbSession):
         return PlainTextResponse("unknown invoice", status_code=status.HTTP_404_NOT_FOUND)
     except DomainError as error:
         # Сумма не совпала — это не наш платёж в том виде, в каком мы его выставили.
+        # Откат обязателен: ошибка могла случиться уже после отметки «оплачено» у попытки,
+        # и тогда повтор уведомления и сверка сочли бы её проведённой.
+        await session.rollback()
         logger.error("Робокасса, счёт %s: %s", inv_id, error.message)
         return PlainTextResponse("rejected", status_code=status.HTTP_409_CONFLICT)
     return PlainTextResponse(f"OK{inv_id}")

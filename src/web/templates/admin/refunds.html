@@ -1,0 +1,73 @@
+{% extends "admin/base.html" %}
+{% from "admin/_ui.html" import tabs %}
+{% block title %}Возвраты{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-left">
+    <h1>Статистика</h1>
+    {{ tabs([('/admin/stats', 'Итоги', False), ('/admin/payments', 'Платежи', False), ('/admin/refunds', 'Возвраты', True)]) }}
+  </div>
+</div>
+
+<p class="muted">Деньги возвращаются в кабинете Робокассы, чек аннулируется в «Мой налог».
+  Здесь — кому вернуть и отметка, что вернули.</p>
+
+<div class="card table-card">
+  {% if pending %}
+    <table class="rtable">
+      <thead>
+        <tr><th>Заказ</th><th>Клиент</th><th>Почему</th><th>С</th><th class="num">Сумма</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for refund in pending %}
+          <tr>
+            <td class="primary">
+              <a href="/admin/orders/{{ refund.order_id }}">{{ refund.order.admin_label }}</a>
+              <div class="muted small">счёт №{{ refund.payment_id }}</div>
+            </td>
+            <td data-label="Клиент">
+              {{ refund.order.recipient_name or refund.order.customer.display_name }}
+              {% if refund.order.recipient_phone %}<div class="muted small">{{ refund.order.recipient_phone }}</div>{% endif %}
+            </td>
+            <td data-label="Почему">{{ refund.reason.value | refund_reason }}</td>
+            <td data-label="С">{{ refund.created_at | ru_datetime_short }}</td>
+            <td class="num" data-label="Сумма"><b>{{ refund.amount_kopecks | rubles }}</b></td>
+            <td>
+              <form method="post" action="/admin/refunds/{{ refund.id }}/done">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input name="note" placeholder="Комментарий (необязательно)" aria-label="Комментарий">
+                <button class="small" type="submit" style="margin-top:8px">Деньги вернула</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty"><b>Возвращать некому</b>Здесь появятся оплаты по отменённым заказам и повторные оплаты.</div>
+  {% endif %}
+</div>
+
+{% if done %}
+<h2 style="margin-top:24px">Уже вернули</h2>
+<div class="card table-card">
+  <table class="rtable">
+    <thead>
+      <tr><th>Заказ</th><th>Почему</th><th>Вернули</th><th>Комментарий</th><th class="num">Сумма</th></tr>
+    </thead>
+    <tbody>
+      {% for refund in done %}
+        <tr>
+          <td class="primary"><a href="/admin/orders/{{ refund.order_id }}">{{ refund.order.admin_label }}</a></td>
+          <td data-label="Почему">{{ refund.reason.value | refund_reason }}</td>
+          <td data-label="Вернули">{{ refund.completed_at | ru_datetime_short }}</td>
+          <td data-label="Комментарий">{{ refund.note or '—' }}</td>
+          <td class="num" data-label="Сумма">{{ refund.amount_kopecks | rubles }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

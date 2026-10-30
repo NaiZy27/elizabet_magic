@@ -52,22 +52,51 @@ services:
       timeout: 5s
       retries: 10
 
+  # Healthcheck: web отвечает на /healthz, bot и worker регулярно отмечают «пульс»
+  # (core.health). Пульс воркера ставит задача планировщика — он заодно проверяет и
+  # scheduler. Статус смотрит deploy/healthcheck.sh (cron на хосте) и пишет в Telegram.
   web:
     <<: *app
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-m", "core.health", "http", "http://127.0.0.1:8000/healthz"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   bot:
     <<: *app
     command: ["python", "-m", "bot.main"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "core.health", "beat", "bot", "120"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   worker:
     <<: *app
-    command: ["taskiq", "worker", "worker.broker:broker", "worker.tasks"]
+    # Остановка при деплое: воркер перестаёт брать новые задачи и до 30 секунд
+    # доделывает начатые. Сообщения клиентам при этом не теряются в любом случае —
+    # они лежат в таблице outbox, пока не отправлены.
+    # --workers 1: по умолчанию taskiq поднимает 2 процесса — это лишняя память и
+    # два разборщика outbox, которые путают порядок сообщений клиенту.
+    command: ["taskiq", "worker", "worker.broker:broker", "worker.tasks",
+              "--workers", "1", "--wait-tasks-timeout", "30"]
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "python", "-m", "core.health", "beat", "worker", "300"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
 
   scheduler:
     <<: *app
-    command: ["taskiq", "scheduler", "worker.broker:scheduler"]
+    # worker.tasks обязателен: без импорта задач у планировщика пустое расписание.
+    command: ["taskiq", "scheduler", "worker.broker:scheduler", "worker.tasks"]
 
 volumes:
   pgdata:

@@ -100,6 +100,7 @@ templates.env.filters.update(
         "cancel_reason": labels.cancel_reason_label,
         "receipt_status": labels.receipt_status_label,
         "receipt_provider": labels.receipt_provider_label,
+        "refund_reason": labels.refund_reason_label,
         "admin_role": labels.admin_role_label,
         "pluralize_ru": pluralize,
         "ru_weekday": _weekday,

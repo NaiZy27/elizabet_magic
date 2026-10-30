@@ -31,5 +31,9 @@ async def reconcile_payments() -> None:
                 found += await payments.reconcile(session, payment_id)
         except DomainError as error:
             logger.warning("Сверка счёта %s не удалась: %s", payment_id, error.message)
+        except Exception:
+            # Сбой на одном счёте (база, неожиданный ответ) не должен оставлять
+            # без проверки остальные: следующий запуск попробует этот счёт снова.
+            logger.exception("Сверка счёта %s упала", payment_id)
     if found:
         logger.info("Сверка нашла оплат без уведомления: %s", found)

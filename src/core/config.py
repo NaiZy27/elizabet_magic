@@ -62,6 +62,13 @@ class OwnerSettings(BaseSettings):
 
     owner_chat_id: int | None = None
     service_chat_id: int | None = None
+    #: Куда слать технические тревоги (упала синхронизация пунктов и т. п.) — обычно
+    #: разработчику. Не задан — владелице.
+    alert_chat_id: int | None = None
+
+    @property
+    def alert_chat(self) -> int | None:
+        return self.alert_chat_id or self.owner_chat_id
 
 
 class AdminSettings(BaseSettings):

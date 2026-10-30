@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 from urllib.parse import quote
@@ -138,6 +139,30 @@ def test_parse_paid_operation():
     assert state is not None and state.is_paid
     assert state.inc_sum == "2000.000000"
     assert state.payment_method == "BankCard"
+    assert state.request_date == dt.datetime(2026, 10, 9, 7, 0, tzinfo=dt.UTC)
+
+
+def test_reconcile_skips_foreign_operation_with_same_number():
+    from core.services import payments
+
+    state = robokassa.parse_operation_state(OP_STATE_PAID)  # 09.10 10:00 МСК, 2000 ₽
+    started = dt.datetime(2026, 10, 9, 6, 58, tzinfo=dt.UTC)
+    ours = Payment(id=1, amount_kopecks=200000, checkout_started_at=started)
+    assert payments.is_same_operation(state, ours)
+    # Клиент платит комиссию сам — сумма больше счёта, это всё ещё наша оплата.
+    assert payments.is_same_operation(
+        state, Payment(amount_kopecks=150000, checkout_started_at=started)
+    )
+
+    # Старая операция: создана за сутки до того, как клиент ушёл в кассу.
+    later = Payment(amount_kopecks=200000, checkout_started_at=started + dt.timedelta(days=1))
+    assert not payments.is_same_operation(state, later)
+    # Та же дата, но оплачено меньше, чем выставлено (проверочный 1 ₽ вместо цены).
+    bigger = Payment(amount_kopecks=500000, checkout_started_at=started)
+    assert not payments.is_same_operation(state, bigger)
+    # Без даты операции проводить не рискуем.
+    undated = robokassa.OperationState(code=100, inc_sum="2000", payment_method=None)
+    assert not payments.is_same_operation(undated, ours)
 
 
 def test_parse_unknown_operation_and_errors():
