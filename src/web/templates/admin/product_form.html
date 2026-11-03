@@ -150,6 +150,12 @@
         </div>
         <button class="secondary block" type="submit">{{ 'Заменить фото' if product.photo_file_id else 'Загрузить фото' }}</button>
       </form>
+      {% if product.photo_file_id %}
+      <form method="post" action="/admin/catalog/products/{{ product.id }}/photo/delete" style="margin-top:8px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="danger block" type="submit" data-confirm="Убрать фото «{{ product.name }}»? Клиенты увидят товар без картинки.">Удалить фото</button>
+      </form>
+      {% endif %}
     </section>
 
     <section class="card danger-zone">

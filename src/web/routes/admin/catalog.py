@@ -202,6 +202,25 @@ async def upload_photo(
     )
 
 
+@router.post("/products/{product_id}/photo/delete")
+async def delete_photo(
+    request: Request,
+    product_id: int,
+    session: DbSession,
+    admin: CurrentOwner,
+    csrf: Annotated[str, Form(alias="csrf_token")] = "",
+):
+    """Убрать фото: бот покажет товар без картинки. Сам файл остаётся у Telegram."""
+    verify_csrf(request, csrf)
+    product = await _get_product(session, product_id)
+    product.photo_file_id = None
+    await session.flush()
+    return RedirectResponse(
+        f"/admin/catalog/products/{product_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @router.post("/products/{product_id}/variants")
 async def save_variant(
     request: Request,
