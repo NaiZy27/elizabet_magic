@@ -1,4 +1,4 @@
-"""Каталог: боксы, их варианты, доп. услуги и палитра цветов."""
+"""Каталог: ложечки (маленькие, большие), их варианты и доп. услуги."""
 
 from __future__ import annotations
 
@@ -137,14 +137,3 @@ class Addon(IdMixin, TimestampMixin, SortableMixin, Base):
 
     def __repr__(self) -> str:
         return f"<Addon {self.code}>"
-
-
-class Color(IdMixin, TimestampMixin, SortableMixin, Base):
-    """Цвет из палитры: клиент отмечает любимые и нежелательные."""
-
-    __tablename__ = "colors"
-
-    name: Mapped[str] = mapped_column(String(64), unique=True)
-
-    def __repr__(self) -> str:
-        return f"<Color {self.name!r}>"

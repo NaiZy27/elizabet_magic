@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from bot import rich, ui
 from bot.callbacks import MenuCB, OrderCB
-from bot.keyboards.common import BTN_MY_ORDERS, DANGER, PRIMARY, SUCCESS, menu_button
+from bot.keyboards.common import BTN_MY_ORDERS, BTN_ORDER, DANGER, PRIMARY, SUCCESS, menu_button
 from core.clock import format_date, format_datetime
 from core.db import after_commit
 from core.enums import CancelReason, OrderStatus, ReceiptStatus
@@ -68,7 +68,7 @@ async def list_orders(
 
     if not found:
         builder = InlineKeyboardBuilder()
-        builder.row(menu_button("🛍 Заказать бокс", "order", style=PRIMARY))
+        builder.row(menu_button(BTN_ORDER, "order", style=PRIMARY))
         builder.row(menu_button("← Меню", "home", style="link"))
         await ui.reply(event, text="Заказов пока нет 💗", keyboard=builder.as_markup())
         return

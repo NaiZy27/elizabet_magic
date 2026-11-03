@@ -174,3 +174,44 @@ def test_big_order_spans_days_and_skips_weekend():
     dates = compute_ready_dates([boxes(1, 1, video=3)], calendar=calendar, today=friday)
 
     assert dates[1] == dt.date(2026, 9, 28)  # два видео в пятницу, третье — в понедельник
+
+
+# --- срок со следующего рабочего дня после оплаты ---
+
+
+def paid(order_id: int, position: int, *, days: int, start: dt.date, video: int = 0) -> QueueEntry:
+    return QueueEntry(
+        order_id=order_id,
+        production_days=days,
+        status=OrderStatus.QUEUED,
+        queue_position=position,
+        video_boxes=video,
+        plain_boxes=0 if video else 1,
+        start=start,
+    )
+
+
+def test_new_order_is_ready_from_next_working_day(workdays, monday):
+    tuesday, wednesday = dt.date(2026, 9, 22), dt.date(2026, 9, 23)
+
+    dates = compute_ready_dates(
+        [paid(1, 1, days=1, start=monday), paid(2, 2, days=2, start=monday, video=1)],
+        calendar=WorkingCalendar(capacity=DailyCapacity()),
+        today=monday,
+    )
+
+    assert dates == {1: tuesday, 2: wednesday}  # без видео — завтра, с видео — послезавтра
+
+
+def test_lead_time_skips_weekend_and_old_orders_keep_queue_dates(workdays, monday):
+    friday = dt.date(2026, 9, 25)
+    next_monday = dt.date(2026, 9, 28)
+
+    # Оплачен в пятницу: срок начинается в понедельник.
+    assert (
+        compute_ready_dates([paid(1, 1, days=1, start=friday)], calendar=workdays, today=friday)[1]
+        == next_monday
+    )
+    # Оплачен давно — срок уже вышел, дата идёт по очереди с сегодняшнего дня.
+    old = paid(2, 1, days=2, start=dt.date(2026, 9, 1))
+    assert compute_ready_dates([old], calendar=workdays, today=monday)[2] == dt.date(2026, 9, 22)

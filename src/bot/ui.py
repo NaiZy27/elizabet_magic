@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 
 def box_header(box_number: int, step: int) -> str:
-    """«📦 Бокс 2 · [шаг 3 из 4]»."""
-    return f"📦 Бокс {box_number} · [шаг {step} из {BOX_STEPS}]"
+    """«🥄 Ложечки 2 · [шаг 3 из 5]»."""
+    return f"🥄 Ложечки {box_number} · [шаг {step} из {BOX_STEPS}]"
 
 
 def compose(header: str | None, title: str, body: str = "", *, note: str = "") -> str:
@@ -298,7 +298,7 @@ async def show_photo(
         sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
     except TelegramBadRequest as error:
         # Фото могло быть загружено другим ботом — file_id тогда не работает.
-        logger.warning("Не удалось показать фото бокса: %s", error)
+        logger.warning("Не удалось показать фото товара: %s", error)
         return
     await state.update_data({PHOTO_MESSAGE_ID: sent.message_id})
 

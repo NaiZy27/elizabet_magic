@@ -21,7 +21,7 @@
   <div class="tile hero">
     <span class="tile-label">В очереди</span>
     <span class="tile-value" data-count>{{ metrics.queued }}</span>
-    <span class="tile-note">{{ plan.queue_boxes }} {{ plan.queue_boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}{% if plan.queue_video_boxes %} · {{ plan.queue_video_boxes }} с видео{% endif %}</span>
+    <span class="tile-note">{{ plan.queue_boxes }} {{ plan.queue_boxes | pluralize_ru('позиция', 'позиции', 'позиций') }}{% if plan.queue_video_boxes %} · {{ plan.queue_video_boxes }} с видео{% endif %}</span>
   </div>
   <div class="tile"><span class="tile-label">Собрать сегодня</span><span class="tile-value">{{ metrics.ready_today }}</span></div>
   <div class="tile"><span class="tile-label">Завтра</span><span class="tile-value">{{ metrics.ready_tomorrow }}</span></div>
@@ -83,7 +83,7 @@
                 {% if card.is_late %}<span class="tag bad">Не успеваем</span>{% endif %}
               </div>
               <div class="oc-foot">
-                <span class="oc-price">{% if admin.is_owner %}{{ order.total_kopecks | rubles }}{% else %}{{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}{% endif %}</span>
+                <span class="oc-price">{% if admin.is_owner %}{{ order.total_kopecks | rubles }}{% else %}{{ order.box_count }} {{ order.box_count | pluralize_ru('позиция', 'позиции', 'позиций') }}{% endif %}</span>
                 <span class="oc-city">{{ (order.pickup_snapshot or {}).get('city') or '' }}</span>
               </div>
             </article>

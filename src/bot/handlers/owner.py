@@ -85,11 +85,11 @@ async def choose_product(
     await state.clear()
     products = await catalog.list_products_for_admin(session)
     if not products:
-        await ui.reply(event, text="В каталоге пока нет боксов.", keyboard=kb.owner_menu())
+        await ui.reply(event, text="В каталоге пока нет товаров.", keyboard=kb.owner_menu())
         return
     await ui.reply(
         event,
-        text="Для какого бокса фото?\n🖼 — есть, ▫️ — нет.",
+        text="Для каких ложечек фото?\n🖼 — есть, ▫️ — нет.",
         keyboard=kb.products(products),
     )
 
@@ -106,7 +106,7 @@ async def back_to_list(
     if callback.message is not None:
         await ui.reply(
             callback,
-            text="Для какого бокса фото?\n🖼 — есть, ▫️ — нет.",
+            text="Для каких ложечек фото?\n🖼 — есть, ▫️ — нет.",
             keyboard=kb.products(products),
         )
 
@@ -141,7 +141,9 @@ async def receive_photo(message: Message, state: FSMContext, session: AsyncSessi
     data = await state.get_data()
     product_id = data.get(PHOTO_PRODUCT_ID)
     if product_id is None:
-        await ui.reply(message, text="Сначала выберите бокс.", keyboard=kb.owner_menu())
+        await ui.reply(
+            message, text="Сначала выберите, для каких ложечек фото.", keyboard=kb.owner_menu()
+        )
         return
 
     product = await catalog.get_product(session, product_id)
@@ -179,7 +181,7 @@ async def clear_photo(
     if callback.message is not None:
         await ui.reply(
             callback,
-            text=f"<b>{escape(product.name)}</b>\n\nФото убрано — бот покажет бокс без картинки.",
+            text=f"<b>{escape(product.name)}</b>\n\nФото убрано — бот покажет их без картинки.",
             keyboard=kb.photo_actions(product.id, has_photo=False),
         )
 

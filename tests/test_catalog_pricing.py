@@ -1,4 +1,4 @@
-"""Цена бокса: варианты из каталога и докупка ложечек сверх самого большого."""
+"""Цена ложечек: варианты из каталога и каждая следующая сверх самого большого."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from core.services.catalog import (
     largest_variant,
     price_for_spoons,
     spoon_options,
+    spoon_prices_text,
 )
 from tests.conftest import add_variant, make_addon, make_product
 
@@ -78,9 +79,28 @@ def test_largest_variant_ignores_disabled(small_box):
 
 
 def test_item_name_snapshot(small_box):
-    assert item_name(small_box, 3) == "Маленький бокс — 3 ложечки"
-    assert item_name(small_box, 1) == "Маленький бокс — 1 ложечка"
-    assert item_name(small_box, 5) == "Маленький бокс — 5 ложечек"
+    small_box.name = "Маленькие ложечки"
+    assert item_name(small_box, 3) == "Маленькие ложечки — 3 шт."
+    assert item_name(small_box, 1) == "Маленькие ложечки — 1 шт."
+
+
+def test_spoon_prices_read_as_a_ladder(small_box):
+    """Клиенту: «1 ложечка — 500 ₽, 2-я — 400 ₽, каждая следующая — 300 ₽»."""
+    assert spoon_prices_text(small_box) == (
+        "1 ложечка — 500\xa0₽, 2-я — 400\xa0₽, каждая следующая — 300\xa0₽"
+    )
+
+
+def test_big_spoon_prices():
+    """Большие: 1000, вторая 900, дальше по 800."""
+    big = make_product(name="Большие ложечки", extra_spoon_price_kopecks=80000, max_spoon_count=6)
+    add_variant(big, spoon_count=1, price_kopecks=100000, sort_order=1)
+    add_variant(big, spoon_count=2, price_kopecks=190000, sort_order=2)
+
+    assert price_for_spoons(big, big.variants, 4)[1] == 350000  # 1000 + 900 + 800 + 800
+    assert spoon_prices_text(big) == (
+        "1 ложечка — 1\xa0000\xa0₽, 2-я — 900\xa0₽, каждая следующая — 800\xa0₽"
+    )
 
 
 def test_production_days_takes_longest_box():
@@ -91,14 +111,14 @@ def test_production_days_takes_longest_box():
     assert compute_production_days([(small, []), (big, [])]) == 3
 
 
-def test_video_days_are_counted_for_each_box():
+def test_video_order_takes_two_days_however_many_positions():
     small = make_product(production_days=1)
     video = make_addon()
 
-    # Один бокс с видео — плюс день.
+    # С видео — 2 дня, без — 1; число позиций срок не растягивает (это дело лимита дня).
     assert compute_production_days([(small, [video])]) == 2
-    # Видео на двух боксах из трёх — плюс два дня.
-    assert compute_production_days([(small, [video]), (small, [video]), (small, [])]) == 3
+    assert compute_production_days([(small, [video]), (small, [video]), (small, [])]) == 2
+    assert compute_production_days([(small, []), (small, [])]) == 1
 
 
 def test_order_level_addon_counted_once():

@@ -59,7 +59,7 @@
   <div class="tile">
     <span class="tile-label">Заказов {{ delta_badge(stats.paid_orders, trend.previous_orders) }}</span>
     <span class="tile-value" data-count>{{ stats.paid_orders }}</span>
-    <span class="tile-note">{{ trend.boxes_sold }} {{ trend.boxes_sold | pluralize_ru('бокс', 'бокса', 'боксов') }}</span>
+    <span class="tile-note">{{ trend.boxes_sold }} {{ trend.boxes_sold | pluralize_ru('позиция', 'позиции', 'позиций') }}</span>
   </div>
   <div class="tile blush">
     <span class="tile-label">Средний чек {{ delta_badge(stats.average_check_kopecks, trend.previous_average_kopecks) }}</span>
@@ -90,7 +90,7 @@
     <div class="card-head"><h2>Что покупают</h2></div>
     {% set product_parts = [] %}
     {% for product in stats.top_products %}{% set _ = product_parts.append((product.name, product.quantity)) %}{% endfor %}
-    {{ donut(product_parts, trend.boxes_sold, 'боксов') }}
+    {{ donut(product_parts, trend.boxes_sold, 'позиций') }}
   </section>
 
   <section class="card">
@@ -131,7 +131,7 @@
 
 {% if stats.top_products %}
 <section class="card section-gap">
-  <div class="card-head"><h2>Выручка по боксам</h2></div>
+  <div class="card-head"><h2>Выручка по товарам</h2></div>
   {% set top_revenue = stats.top_products | map(attribute='revenue_kopecks') | max %}
   <div class="bars">
     {% for product in stats.top_products %}

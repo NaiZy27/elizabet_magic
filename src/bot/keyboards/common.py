@@ -20,7 +20,7 @@ from bot.callbacks import MenuCB, SkipCB, StepCB
 
 # Подписи прежней клавиатуры под полем ввода. У кого она осталась с прошлых версий,
 # нажатия по-прежнему ловятся, а /start её убирает.
-BTN_ORDER = "🛍 Заказать бокс"
+BTN_ORDER = "🥄 Заказать ложечки"
 BTN_MY_ORDERS = "📦 Мои заказы"
 BTN_PRICES = "💰 Цены"
 BTN_DELIVERY = "🚚 Доставка и ПВЗ"
@@ -53,7 +53,7 @@ def menu_button(text: str, section: str, *, style: str | None = None) -> InlineK
 def main_menu() -> InlineKeyboardMarkup:
     """Главное меню внутри сообщения."""
     builder = InlineKeyboardBuilder()
-    builder.row(menu_button("🛍 Заказать бокс", "order", style=PRIMARY))
+    builder.row(menu_button(BTN_ORDER, "order", style=PRIMARY))
     builder.row(menu_button("📦 Мои заказы", "orders"), menu_button("💰 Цены", "prices"))
     builder.row(menu_button("🚚 Доставка", "delivery"), menu_button("❓ Вопросы", "faq"))
     builder.row(menu_button("📞 Связаться с нами", "contacts"))

@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.clock import now_utc, today_moscow
+from core.clock import now_utc, to_moscow, today_moscow
 from core.enums import BOARD_STATUSES, QUEUE_STATUSES, OrderStatus
 from core.errors import ConflictError
 from core.labels import ORDER_STATUS_LABELS
@@ -195,6 +195,7 @@ def queue_entries(orders: Iterable[Order]) -> list[QueueEntry]:
                 queue_position=order.queue_position,
                 video_boxes=order.video_box_count,
                 plain_boxes=order.box_count - order.video_box_count,
+                start=to_moscow(order.paid_at).date() if order.paid_at else None,
             ),
         )
     return entries
@@ -242,6 +243,8 @@ async def estimate_spot(
             queue_position=position,
             video_boxes=order.video_box_count,
             plain_boxes=order.box_count - order.video_box_count,
+            # Оплатят сегодня — срок пойдёт со следующего рабочего дня.
+            start=today or today_moscow(),
         ),
     )
     ready = compute_ready_dates(entries, calendar=calendar, today=today)

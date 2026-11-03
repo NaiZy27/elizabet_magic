@@ -1,4 +1,4 @@
-"""Каталог: боксы, варианты, доп. услуги и палитра цветов.
+"""Каталог: ложечки, их варианты и доп. услуги.
 
 Цены вводятся в рублях и тут же переводятся в копейки — в базе плавающих чисел нет.
 Фото загружается файлом: сервер отправляет его клиентским ботом в служебный чат
@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from core.config import get_settings
 from core.enums import AddonChargeMode
-from core.models import Addon, Color, Product, ProductVariant
+from core.models import Addon, Product, ProductVariant
 from core.money import parse_rubles
 from core.services import analytics
 from core.services import catalog as catalog_service
@@ -37,7 +37,6 @@ async def catalog_page(request: Request, session: DbSession, admin: CurrentOwner
     addons = await session.scalars(
         select(Addon).where(Addon.archived_at.is_(None)).order_by(Addon.sort_order, Addon.id),
     )
-    colors = await session.scalars(select(Color).order_by(Color.sort_order, Color.id))
 
     return render(
         request,
@@ -47,7 +46,6 @@ async def catalog_page(request: Request, session: DbSession, admin: CurrentOwner
             "notice": NOTICES.get(request.query_params.get("done", "")),
             "sold_30d": await analytics.product_sales(session, days=30),
             "addons": list(addons),
-            "colors": list(colors),
             "admin": admin,
             "csrf_token": csrf_token(request),
             "charge_modes": list(AddonChargeMode),
@@ -175,10 +173,10 @@ async def upload_photo(
         message = await get_bot().send_photo(
             chat_id=settings.owner.service_chat_id,
             photo=BufferedInputFile(content, filename=photo.filename or "photo.jpg"),
-            caption=f"Фото для бокса «{product.name}»",
+            caption=f"Фото для «{product.name}»",
         )
     except Exception as error:
-        logger.exception("Не удалось загрузить фото бокса")
+        logger.exception("Не удалось загрузить фото товара")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Telegram не принял файл. Попробуйте ещё раз.",
@@ -282,34 +280,6 @@ async def save_addon(
     return RedirectResponse("/admin/catalog", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/colors")
-async def save_color(
-    request: Request,
-    session: DbSession,
-    admin: CurrentOwner,
-    name: Annotated[str, Form()],
-    color_id: Annotated[int, Form()] = 0,
-    sort_order: Annotated[int, Form()] = 0,
-    is_active: Annotated[bool, Form()] = False,
-    csrf: Annotated[str, Form(alias="csrf_token")] = "",
-):
-    verify_csrf(request, csrf)
-    if color_id:
-        color = await session.get(Color, color_id)
-        if color is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Цвет не найден")
-    else:
-        color = Color(name=name.strip())
-        session.add(color)
-
-    color.name = name.strip()
-    color.sort_order = sort_order
-    color.is_active = is_active
-
-    await session.flush()
-    return RedirectResponse("/admin/catalog", status_code=status.HTTP_303_SEE_OTHER)
-
-
 #: Что сказать после удаления: удалено совсем или ушло в архив из-за старых заказов.
 NOTICES = {
     "deleted": "Удалено.",
@@ -366,22 +336,6 @@ async def delete_addon(
     return _done("/admin/catalog", removed)
 
 
-@router.post("/colors/{color_id}/delete")
-async def delete_color(
-    request: Request,
-    color_id: int,
-    session: DbSession,
-    admin: CurrentOwner,
-    csrf: Annotated[str, Form(alias="csrf_token")] = "",
-):
-    verify_csrf(request, csrf)
-    color = await session.get(Color, color_id)
-    if color is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Цвет не найден")
-    await catalog_service.delete_color(session, color)
-    return _done("/admin/catalog", True)
-
-
 def _done(url: str, removed: bool) -> RedirectResponse:
     return RedirectResponse(
         f"{url}?done={'deleted' if removed else 'archived'}",
@@ -394,7 +348,7 @@ async def _get_product(session, product_id: int) -> Product:
         select(Product).where(Product.id == product_id, Product.archived_at.is_(None)),
     )
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Бокс не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
     await session.refresh(product, ["variants"])
     return product
 

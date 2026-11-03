@@ -22,7 +22,7 @@
   </div>
   <div class="tile">
     <span class="tile-label">В очереди</span>
-    <span class="tile-value">{{ plan.queue_boxes }} <small>{{ plan.queue_boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}</small></span>
+    <span class="tile-value">{{ plan.queue_boxes }} <small>{{ plan.queue_boxes | pluralize_ru('позиция', 'позиции', 'позиций') }}</small></span>
     <span class="tile-note">{{ plan.queue_orders }} {{ plan.queue_orders | pluralize_ru('заказ', 'заказа', 'заказов') }} · с видео {{ plan.queue_video_boxes }}</span>
   </div>
   {% if capacity %}
@@ -56,7 +56,7 @@
           {% if day.is_working %}
             {% if capacity %}<div class="meter"><span style="width: {{ day.percent }}%"></span></div>{% endif %}
             <div class="cal-boxes">
-              {% if day.boxes %}{{ day.boxes }} {{ day.boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}{% if day.video_boxes %} · видео {{ day.video_boxes }}{% endif %}{% if capacity %} · {{ day.percent }}%{% endif %}
+              {% if day.boxes %}{{ day.boxes }} {{ day.boxes | pluralize_ru('позиция', 'позиции', 'позиций') }}{% if day.video_boxes %} · видео {{ day.video_boxes }}{% endif %}{% if capacity %} · {{ day.percent }}%{% endif %}
               {% else %}свободно{% endif %}
             </div>
           {% else %}

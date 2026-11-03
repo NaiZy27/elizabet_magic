@@ -6,9 +6,9 @@
 <div class="page-head">
   <div>
     <h1>Товары</h1>
-    <div class="sub">{{ products | length }} {{ (products | length) | pluralize_ru('бокс', 'бокса', 'боксов') }}</div>
+    <div class="sub">{{ products | length }} {{ (products | length) | pluralize_ru('товар', 'товара', 'товаров') }}</div>
   </div>
-  <div class="actions"><a class="button" href="/admin/catalog/products/new">{{ icon('plus') }}Новый бокс</a></div>
+  <div class="actions"><a class="button" href="/admin/catalog/products/new">{{ icon('plus') }}Новый товар</a></div>
 </div>
 
 {% if notice is defined and notice %}<div class="flash">{{ notice }}</div>{% endif %}
@@ -45,7 +45,7 @@
   {% endfor %}
   <a class="product-tile add" href="/admin/catalog/products/new">
     <span class="plus">+</span>
-    {{ 'Добавить первый бокс' if not products else 'Добавить бокс' }}
+    {{ 'Добавить первый товар' if not products else 'Добавить товар' }}
   </a>
 </section>
 
@@ -72,7 +72,7 @@
                 <label>Как считать</label>
                 <select name="charge_mode">
                   {% for mode in charge_modes %}
-                    <option value="{{ mode.value }}" {{ 'selected' if addon.charge_mode == mode }}>{{ 'За каждый бокс' if mode.value == 'per_box' else 'Раз на заказ' }}</option>
+                    <option value="{{ mode.value }}" {{ 'selected' if addon.charge_mode == mode }}>{{ 'За каждую позицию' if mode.value == 'per_box' else 'Раз на заказ' }}</option>
                   {% endfor %}
                 </select>
               </div>
@@ -103,7 +103,7 @@
             <div class="form-row">
               <label>Как считать</label>
               <select name="charge_mode">
-                <option value="per_box">За каждый бокс</option>
+                <option value="per_box">За каждую позицию</option>
                 <option value="per_order">Раз на заказ</option>
               </select>
             </div>
@@ -120,44 +120,4 @@
   </div>
 </details>
 
-<details class="fold">
-  <summary>Цвета <span class="muted">{{ colors | length }}</span></summary>
-  <div class="fold-body">
-    <div class="list-rows">
-      {% for color in colors %}
-        <details class="list-row">
-          <summary><b>{{ color.name }}</b><span class="status {{ 'on' if color.is_active else 'off' }}"></span></summary>
-          <form method="post" action="/admin/catalog/colors" class="row-body">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="color_id" value="{{ color.id }}">
-            <div class="form-grid">
-              <div class="form-row"><label>Название</label><input name="name" value="{{ color.name }}" required></div>
-              <div class="form-row"><label>Порядок</label><input name="sort_order" type="number" value="{{ color.sort_order }}"></div>
-            </div>
-            <div class="form-actions">
-              <label class="switch"><input type="checkbox" name="is_active" value="true" {{ 'checked' if color.is_active }}> Показывать</label>
-              <button class="secondary" type="submit" style="order:3">Сохранить</button>
-              <button class="link-danger" type="submit" formaction="/admin/catalog/colors/{{ color.id }}/delete" formnovalidate
-                      data-confirm="Удалить цвет «{{ color.name }}»?" style="order:2;margin-left:auto">Удалить</button>
-            </div>
-          </form>
-        </details>
-      {% endfor %}
-      <details class="list-row">
-        <summary><b style="color:var(--brand)">+ Новый цвет</b></summary>
-        <form method="post" action="/admin/catalog/colors" class="row-body">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <div class="form-grid">
-            <div class="form-row"><label>Название</label><input name="name" required></div>
-            <div class="form-row"><label>Порядок</label><input name="sort_order" type="number" value="0"></div>
-          </div>
-          <div class="form-actions">
-            <label class="switch"><input type="checkbox" name="is_active" value="true" checked> Показывать</label>
-            <button type="submit" style="margin-left:auto">Добавить</button>
-          </div>
-        </form>
-      </details>
-    </div>
-  </div>
-</details>
 {% endblock %}

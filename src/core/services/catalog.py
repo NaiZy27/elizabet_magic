@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,8 @@ from sqlalchemy.orm import selectinload
 from core.clock import now_utc
 from core.enums import VIDEO_ADDON_CODE, AddonChargeMode
 from core.errors import NotFoundError, ValidationError
-from core.models import Addon, Color, OrderAddon, OrderItem, Product, ProductVariant
+from core.models import Addon, OrderAddon, OrderItem, Product, ProductVariant
+from core.money import format_rubles
 from core.text import spoons_phrase
 
 # --- что просит клиент ---
@@ -129,7 +131,7 @@ def price_for_spoons(
     """
     active = active_variants(variants)
     if not active:
-        raise ValidationError("У этого бокса сейчас нет доступных вариантов")
+        raise ValidationError(f"«{product.name}» сейчас нельзя заказать")
 
     for variant in active:
         if variant.spoon_count == spoon_count:
@@ -147,30 +149,60 @@ def price_for_spoons(
         price = biggest.price_kopecks + extra_spoons * product.extra_spoon_price_kopecks
         return biggest, price
 
-    raise ValidationError(f"Бокс на {spoons_phrase(spoon_count)} заказать нельзя")
+    raise ValidationError(f"«{product.name}»: {spoons_phrase(spoon_count)} заказать нельзя")
 
 
 def item_name(product: Product, spoon_count: int) -> str:
-    """Название позиции для снимка и для карточки: «Маленький бокс — 3 ложечки»."""
-    return f"{product.name} — {spoons_phrase(spoon_count)}"
+    """Название позиции для снимка, карточки и чека: «Маленькие ложечки — 3 шт.»."""
+    return f"{product.name} — {spoon_count} шт."
+
+
+def spoon_prices_text(product: Product) -> str:
+    """Цены лесенкой: «1 ложечка — 500 ₽, 2-я — 400 ₽, каждая следующая — 300 ₽».
+
+    Клиенту понятнее цена каждой следующей ложечки, чем итог за 1, 2, 3… Если варианты
+    идут не подряд с одной ложечки, лесенка не получается — тогда итоговые цены.
+    """
+    counts = spoon_options(product, product.variants)
+    totals = [price_for_spoons(product, product.variants, count)[1] for count in counts]
+    if not counts or counts != list(range(1, len(counts) + 1)):
+        return ", ".join(
+            f"{spoons_phrase(count)} — {format_rubles(total)}"
+            for count, total in zip(counts, totals, strict=True)
+        )
+    steps = [totals[0], *(b - a for a, b in pairwise(totals))]
+    tail = len(steps) - 1
+    while tail > 0 and steps[tail - 1] == steps[-1]:
+        tail -= 1
+    if len(steps) - tail < 2:
+        tail = len(steps)
+    parts = [
+        f"1 ложечка — {format_rubles(price)}"
+        if index == 0
+        else f"{index + 1}-я — {format_rubles(price)}"
+        for index, price in enumerate(steps[:tail])
+    ]
+    if tail < len(steps):
+        parts.append(f"каждая следующая — {format_rubles(steps[-1])}")
+    return ", ".join(parts)
 
 
 def compute_production_days(
     boxes: Sequence[tuple[Product, Sequence[Addon]]],
     order_addons: Sequence[Addon] = (),
 ) -> int:
-    """Срок изготовления заказа в рабочих днях.
+    """Срок изготовления заказа в рабочих днях: без видео — 1 день, с видео — 2.
 
-    `boxes` — по записи на каждый физический бокс: сам бокс и услуги к нему.
-    База — самый долгий бокс. Услуги к боксу удлиняют срок за каждый бокс
-    отдельно: видео на двух боксах — плюс два дня. Услуги на весь заказ — один раз.
-    Предположение «несколько боксов без услуг собираются не дольше одного» — открытый
-    вопрос ТЗ, при необходимости правится здесь.
+    `boxes` — по записи на каждую позицию: товар и услуги к нему. Срок позиции —
+    срок товара плюс её услуги; срок заказа — самая долгая позиция плюс услуги на весь
+    заказ. Сколько позиций успеть за день, решает дневной лимит сборки, а не срок.
     """
-    base = max((product.production_days for product, _ in boxes), default=1)
-    per_box = sum(addon.extra_production_days for _, addons in boxes for addon in addons)
+    per_box = [
+        product.production_days + sum(addon.extra_production_days for addon in addons)
+        for product, addons in boxes
+    ]
     per_order = sum(addon.extra_production_days for addon in order_addons)
-    return max(1, base + per_box + per_order)
+    return max(1, max(per_box, default=1) + per_order)
 
 
 # --- работа с базой ---
@@ -281,45 +313,13 @@ async def delete_addon(session: AsyncSession, addon: Addon) -> bool:
     return True
 
 
-async def delete_color(session: AsyncSession, color: Color) -> None:
-    """Цвета в заказах хранятся словами, поэтому цвет можно удалить всегда."""
-    await session.execute(delete(Color).where(Color.id == color.id))
-
-
 async def get_product(session: AsyncSession, product_id: int) -> Product:
     product = await session.scalar(
         select(Product).options(selectinload(Product.variants)).where(Product.id == product_id),
     )
     if product is None:
-        raise NotFoundError("Бокс не найден")
+        raise NotFoundError("Товар не найден")
     return product
-
-
-async def list_active_colors(session: AsyncSession) -> list[Color]:
-    result = await session.scalars(
-        select(Color).where(Color.is_active.is_(True)).order_by(Color.sort_order, Color.id),
-    )
-    return list(result)
-
-
-async def color_names(session: AsyncSession, color_ids: Sequence[int]) -> list[str]:
-    """Названия цветов в порядке палитры — для снимка пожеланий в заказе."""
-    if not color_ids:
-        return []
-    result = await session.scalars(
-        select(Color).where(Color.id.in_(set(color_ids))).order_by(Color.sort_order, Color.id),
-    )
-    return [color.name for color in result]
-
-
-async def color_ids_by_names(session: AsyncSession, names: Sequence[str]) -> list[int]:
-    """Обратно: id активных цветов по названиям — чтобы отметить их при правке бокса."""
-    if not names:
-        return []
-    result = await session.scalars(
-        select(Color.id).where(Color.name.in_(set(names)), Color.is_active.is_(True)),
-    )
-    return list(result)
 
 
 async def list_active_addons(session: AsyncSession) -> list[Addon]:
@@ -349,7 +349,7 @@ async def price_order(
     «один раз на заказ», она переезжает на заказ: брать её за каждый бокс нельзя.
     """
     if not items:
-        raise ValidationError("В заказе нет ни одного бокса")
+        raise ValidationError("В заказе нет ни одной позиции")
     if delivery_kopecks < 0:
         raise ValidationError("Стоимость доставки не может быть отрицательной")
 
@@ -363,7 +363,7 @@ async def price_order(
     boxes: list[tuple[Product, list[Addon]]] = []
     for item in items:
         if item.quantity <= 0:
-            raise ValidationError("Количество боксов должно быть больше нуля")
+            raise ValidationError("Количество должно быть больше нуля")
         variant = variants[item.variant_id]
         product = variant.product
         spoon_count = item.spoon_count if item.spoon_count is not None else variant.spoon_count
@@ -415,7 +415,7 @@ async def _load_variants(
     variants = {variant.id: variant for variant in result}
     missing = unique_ids - variants.keys()
     if missing:
-        raise NotFoundError("Такого бокса больше нет в каталоге")
+        raise NotFoundError("Таких ложечек больше нет в каталоге")
     for variant in variants.values():
         if not variant.is_active or not variant.product.is_active:
             raise ValidationError(f"«{variant.product.name}» сейчас недоступен для заказа")

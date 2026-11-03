@@ -137,7 +137,7 @@ def _register_error_handlers(app: FastAPI) -> None:
         logger.info("Нарушено ограничение базы: %s", error.orig)
         unique = "unique" in str(error.orig).lower() or "duplicate" in str(error.orig).lower()
         message = (
-            "Такое значение уже есть. Артикул бокса и варианта, код услуги и название цвета "
+            "Такое значение уже есть. Артикул товара и варианта и код услуги "
             "должны быть уникальными — поменяйте и сохраните ещё раз."
             if unique
             else "Данные не подошли под правила. Проверьте поля и сохраните ещё раз."

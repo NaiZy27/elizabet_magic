@@ -65,9 +65,21 @@ class QueueEntry:
     production_days: int
     status: OrderStatus
     queue_position: int
-    #: Сколько боксов снимаем на видео и сколько без — для дневного лимита сборки.
+    #: Сколько позиций снимаем на видео и сколько без — для дневного лимита сборки.
     video_boxes: int = 0
     plain_boxes: int = 0
+    #: День оплаты по Москве. Срок изготовления отсчитывается со следующего рабочего
+    #: дня: заказ без видео (1 день) готов не раньше следующего рабочего дня, с видео
+    #: (2 дня) — через два. None — без этого ограничения.
+    start: dt.date | None = None
+
+
+def earliest_ready(entry: QueueEntry, calendar: WorkingCalendar) -> dt.date | None:
+    """Раньше этой даты заказ не готов, даже если очередь свободна."""
+    if entry.start is None:
+        return None
+    first_day = next_working_day(entry.start, calendar)
+    return shift_working_days(first_day, max(1, entry.production_days) - 1, calendar)
 
 
 def ensure_working_day(day: dt.date, calendar: WorkingCalendar) -> dt.date:
@@ -108,9 +120,10 @@ def compute_ready_dates(
 ) -> dict[int, dt.date]:
     """Расчётные даты готовности для всей очереди.
 
-    Заказы идут строго по queue_position. С `capacity` боксы раскладываются по дням
+    Заказы идут строго по queue_position. С `capacity` позиции раскладываются по дням
     в пределах дневного лимита: заказ готов в тот день, куда лёг его последний бокс.
     Без него — по сроку изготовления: каждый следующий заказ после предыдущего.
+    В обоих случаях заказ не готов раньше `earliest_ready` — срока с дня оплаты.
     """
     capacity = capacity or calendar.capacity
     if capacity is not None:
@@ -121,6 +134,7 @@ def compute_ready_dates(
     for entry in sorted(entries, key=lambda item: item.queue_position):
         # Заказ на один день готов в тот же день, на два — на следующий рабочий.
         ready = shift_working_days(cursor, max(1, entry.production_days) - 1, calendar)
+        ready = max(ready, earliest_ready(entry, calendar) or ready)
         ready_dates[entry.order_id] = ready
         cursor = next_working_day(ready, calendar)
     return ready_dates
@@ -148,7 +162,9 @@ def _ready_dates_by_capacity(
                 day = next_working_day(day, calendar)
                 used = 0
             used += units
-        ready_dates[entry.order_id] = day
+        # shortcut: лимит дня занимается по очереди, а не в день earliest_ready — для
+        # заказа, отложенного сроком, загрузка дня завышена; править, если будет мешать.
+        ready_dates[entry.order_id] = max(day, earliest_ready(entry, calendar) or day)
     return ready_dates
 
 

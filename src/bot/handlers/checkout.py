@@ -53,7 +53,6 @@ from bot.states import (
     COMMENT,
     EDIT_ITEM_ID,
     EDITING,
-    FAVORITE_COLORS,
     HELPER_MESSAGE_ID,
     MANUAL_MOSCOW,
     MANUAL_PROVIDER,
@@ -239,8 +238,7 @@ async def _start_box(
                 PRODUCT_ID: item.variant.product_id,
                 SPOON_COUNT: item.spoon_count,
                 WITH_VIDEO: item.has_video,
-                FAVORITE_COLORS: await catalog.color_ids_by_names(session, item.favorite_colors),
-                AVOID_COLORS: await catalog.color_ids_by_names(session, item.avoid_colors),
+                AVOID_COLORS: ", ".join(item.avoid_colors) or None,
                 COMMENT: item.comment,
             },
         )
@@ -278,7 +276,7 @@ async def show_product_step(
         state,
         text=ui.compose(
             ui.box_header(box_number, 1),
-            "Выберите бокс",
+            "Какие ложечки?",
             notice or "",
         ),
         keyboard=kb.products(rows, back_to_cart=has_items),
@@ -323,9 +321,7 @@ async def show_spoons_step(
         _, price = price_for_spoons(product, product.variants, count)
         options.append((count, price))
 
-    note = ""
-    if product.allows_extra_spoons and product.extra_spoon_price_kopecks is not None:
-        note = f"(+1 ложечка — {format_rubles(product.extra_spoon_price_kopecks)})"
+    note = catalog.spoon_prices_text(product)
 
     await state.set_state(Checkout.spoons)
     if product.photo_file_id:
@@ -338,7 +334,7 @@ async def show_spoons_step(
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 2),
             "Сколько ложечек?",
-            note=note,
+            note,
         ),
         keyboard=kb.spoons(options, chosen=data.get(SPOON_COUNT)),
     )
@@ -378,7 +374,7 @@ async def show_video_step(
     texts = await settings.get_bot_texts(session)
     await state.set_state(Checkout.video)
     await ui.clear_photo(event, state)
-    description = addon.description or "Снимем сборку именно вашего бокса и пришлём видео."
+    description = addon.description or "Снимем, как собираем именно ваши ложечки, и пришлём видео."
     note = texts.no_video_note.strip()
     await ui.show(
         event,
@@ -386,7 +382,7 @@ async def show_video_step(
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 3),
             "Видео сборки?",
-            # Подпись про бокс без видео владелица правит в панели: «Настройки → Тексты».
+            # Подпись про заказ без видео владелица правит в панели: «Настройки → Тексты».
             f"{description}\n\n<i>{note}</i>" if note else description,
         ),
         keyboard=kb.video(addon.price_kopecks, chosen=data.get(WITH_VIDEO)),
@@ -408,7 +404,7 @@ async def choose_video(
     await show_comment_step(callback, state, session)
 
 
-# --- бокс: шаг 4, цвета и пожелания текстом ---
+# --- ложечки: шаг 4, любимые цвета и пожелания текстом ---
 
 
 async def show_comment_step(
@@ -428,9 +424,9 @@ async def show_comment_step(
         state,
         text=ui.compose(
             ui.box_header(data.get(BOX_NUMBER) or 1, 4),
-            "Цвета и пожелания",
-            "Напишите одним сообщением: какие цвета нравятся, какие не использовать, "
-            f"для кого подарок.{hint}\n\n<i>{texts.wishes_disclaimer}</i>",
+            "Какие цвета нравятся?",
+            "Напишите любые цвета — например, «пудровый, мятный». Сюда же можно добавить "
+            f"пожелания: для кого подарок, повод.{hint}\n\n<i>{texts.wishes_disclaimer}</i>",
         ),
         keyboard=kb.comment(has_current=bool(current), back_step=back_step),
     )
@@ -449,7 +445,7 @@ async def receive_comment(
     comment = (message.text or "").strip() or None
     await state.update_data({COMMENT: comment})
     await ui.consume(message, state)
-    await _finish_box(message, state, session, order)
+    await show_avoid_step(message, state, session)
 
 
 @router.callback_query(SkipCB.filter(F.step == "comment"))
@@ -459,7 +455,60 @@ async def skip_comment(
     session: AsyncSession,
     customer: Customer,
 ) -> None:
-    """Без пожеланий — или, при правке бокса, оставить прежние."""
+    """Без пожеланий — или, при правке позиции, оставить прежние."""
+    if await _draft(callback, state, session, customer) is None:
+        return
+    await callback.answer()
+    await show_avoid_step(callback, state, session)
+
+
+# --- ложечки: шаг 5, нежелательные цвета ---
+
+
+async def show_avoid_step(
+    event: Message | CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+) -> None:
+    data = await state.get_data()
+    current = data.get(AVOID_COLORS)
+    hint = f"\n\nСейчас: «{escape(truncate(current, 300))}»" if current else ""
+    await state.set_state(Checkout.avoid_colors)
+    await ui.show(
+        event,
+        state,
+        text=ui.compose(
+            ui.box_header(data.get(BOX_NUMBER) or 1, 5),
+            "Какие цвета не использовать?",
+            f"Напишите цвета, которых не должно быть в подарке.{hint}",
+        ),
+        keyboard=kb.avoid_colors(has_current=bool(current)),
+    )
+
+
+@router.message(Checkout.avoid_colors, F.text, NOT_MENU)
+async def receive_avoid_colors(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    order = await _draft(message, state, session, customer)
+    if order is None:
+        return
+    await state.update_data({AVOID_COLORS: (message.text or "").strip() or None})
+    await ui.consume(message, state)
+    await _finish_box(message, state, session, order)
+
+
+@router.callback_query(SkipCB.filter(F.step == "avoid"))
+async def skip_avoid_colors(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    customer: Customer,
+) -> None:
+    """Таких цветов нет — или, при правке позиции, оставить прежние."""
     order = await _draft(callback, state, session, customer)
     if order is None:
         return
@@ -490,8 +539,7 @@ async def _finish_box(
                 variant_id=variant.id,
                 spoon_count=data[SPOON_COUNT],
                 addon_ids=(video.id,) if (data.get(WITH_VIDEO) and video is not None) else (),
-                favorite_color_ids=tuple(data.get(FAVORITE_COLORS) or ()),
-                avoid_color_ids=tuple(data.get(AVOID_COLORS) or ()),
+                avoid_colors=data.get(AVOID_COLORS),
                 comment=data.get(COMMENT),
             ),
             item_id=data.get(EDIT_ITEM_ID),
@@ -500,7 +548,7 @@ async def _finish_box(
         await ui.show(
             event,
             state,
-            text=ui.compose(None, "Не получилось добавить бокс", error.message),
+            text=ui.compose(None, "Не получилось добавить ложечки", error.message),
             keyboard=kb.cart(order.items, can_add=True) if order.items else None,
         )
         return
@@ -521,9 +569,8 @@ async def show_cart(
     rules = await settings.get_order_rules(session)
     await state.set_state(Checkout.cart)
     await ui.clear_photo(event, state)
-    body = (
-        f"{describe_boxes(order)}\n\nБоксы и услуги: <b>{format_rubles(order.subtotal_kopecks)}</b>"
-    )
+    subtotal = format_rubles(order.subtotal_kopecks)
+    body = f"{describe_boxes(order)}\n\nЛожечки и услуги: <b>{subtotal}</b>"
     await ui.show(
         event,
         state,
@@ -559,8 +606,8 @@ def describe_boxes(order: Order) -> str:
             part
             for part in (
                 f"цвета: {', '.join(item.favorite_colors)}" if item.favorite_colors else "",
-                f"без: {', '.join(item.avoid_colors)}" if item.avoid_colors else "",
                 item.comment or "",
+                f"не использовать: {', '.join(item.avoid_colors)}" if item.avoid_colors else "",
             )
             if part
         )
@@ -591,7 +638,7 @@ async def cart_action(
         rules = await settings.get_order_rules(session)
         if order.box_count >= rules.max_boxes_per_order:
             await callback.answer(
-                f"В одном заказе — не больше {rules.max_boxes_per_order} боксов",
+                f"В одном заказе — не больше {rules.max_boxes_per_order} позиций",
                 show_alert=True,
             )
             return
@@ -601,7 +648,7 @@ async def cart_action(
 
     item = next((item for item in order.items if item.id == callback_data.item_id), None)
     if action in {"edit", "remove"} and item is None:
-        await callback.answer("Этого бокса уже нет в заказе")
+        await callback.answer("Этих ложечек уже нет в заказе")
         await show_cart(callback, state, session, order)
         return
 
@@ -610,7 +657,7 @@ async def cart_action(
         await _start_box(callback, state, session, order, item)
     elif action == "remove":
         await orders.remove_box(session, order, item.id)
-        await callback.answer("Бокс убран")
+        await callback.answer("Ложечки убраны из заказа")
         if order.items:
             await show_cart(callback, state, session, order)
         else:
@@ -901,7 +948,7 @@ async def manual_pickup_provider(
             None,
             "Какой службой доставить?",
             "Выберите службу, а потом напишите адрес её пункта выдачи — "
-            "мы найдём его и отправим туда бокс.",
+            "мы найдём его и отправим туда заказ.",
         ),
         keyboard=kb.manual_providers(providers),
     )
@@ -1409,9 +1456,11 @@ async def navigate(
         await show_spoons_step(callback, state, session)
     elif step == "video" and data.get(PRODUCT_ID):
         await show_video_step(callback, state, session)
-    elif step in {"comment", "colors_f", "colors_a"}:
-        # colors_* — кнопки «Назад» со старых сообщений, где ещё были цвета.
+    elif step in {"comment", "colors_f"}:
+        # colors_* — кнопки «Назад» со старых сообщений, где цвета были кнопками.
         await show_comment_step(callback, state, session)
+    elif step in {"avoid", "colors_a"}:
+        await show_avoid_step(callback, state, session)
     elif step == "cart":
         await state.update_data(dict.fromkeys(BOX_KEYS))
         if order.items:

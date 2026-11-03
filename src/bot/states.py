@@ -17,9 +17,8 @@ class Checkout(StatesGroup):
     product = State()
     spoons = State()
     video = State()
-    favorite_colors = State()
-    avoid_colors = State()
     comment = State()
+    avoid_colors = State()
     # Корзина: добавить ещё бокс, поправить или убрать.
     cart = State()
     # Общее для всего заказа.
@@ -40,8 +39,8 @@ class OwnerPhoto(StatesGroup):
     waiting = State()
 
 
-#: Шагов у одного бокса — показывается как «📦 Бокс 2 · [шаг 3 из 4]».
-BOX_STEPS = 4
+#: Шагов у одной позиции — показывается как «🥄 Ложечки 2 · [шаг 3 из 5]».
+BOX_STEPS = 5
 
 #: Ключи данных FSM.
 UI_MESSAGE_ID = "ui_message_id"
@@ -58,7 +57,7 @@ BOX_NUMBER = "box_number"
 PRODUCT_ID = "product_id"
 SPOON_COUNT = "spoon_count"
 WITH_VIDEO = "with_video"
-FAVORITE_COLORS = "favorite_colors"
+#: Нежелательные цвета — текстом, как написал клиент.
 AVOID_COLORS = "avoid_colors"
 COMMENT = "comment"
 
@@ -80,7 +79,6 @@ BOX_KEYS = (
     PRODUCT_ID,
     SPOON_COUNT,
     WITH_VIDEO,
-    FAVORITE_COLORS,
     AVOID_COLORS,
     COMMENT,
 )

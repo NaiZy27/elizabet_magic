@@ -13,7 +13,7 @@ from core.config import get_settings
 from core.models import Product
 from core.text import truncate
 
-BTN_PHOTO = "📸 Фото бокса"
+BTN_PHOTO = "📸 Фото ложечек"
 BTN_PANEL = "🖥 Панель заказов"
 
 #: Кнопки рабочего меню — по ним же ловятся нажатия.
@@ -63,7 +63,7 @@ def photo_actions(product_id: int, *, has_photo: bool) -> InlineKeyboardMarkup:
             callback_data=OwnerPhotoCB(action="clear", product_id=product_id).pack(),
         )
     builder.button(
-        text="← К списку боксов",
+        text="← К списку",
         callback_data=OwnerPhotoCB(action="list", product_id=0).pack(),
     )
     builder.adjust(1)

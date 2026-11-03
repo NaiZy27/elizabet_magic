@@ -22,7 +22,6 @@ from core.enums import (
 )
 from core.models import (
     Addon,
-    Color,
     DeliveryProvider,
     MessageTemplate,
     PickupPoint,
@@ -30,38 +29,29 @@ from core.models import (
     ProductVariant,
 )
 from core.services.notifications import DEFAULT_TEMPLATES
+from core.text import spoons_phrase
 
-#: Палитра из ТЗ.
-COLORS = [
-    "Розовый",
-    "Голубой",
-    "Сиреневый",
-    "Фиолетовый",
-    "Белый",
-    "Чёрный",
-    "Жёлтый",
-    "Зелёный",
+#: Ложечки и цены заказчицы: первая — полная цена, вторая — на 100 ₽ дешевле,
+#: каждая следующая — по цене докупки. Маленькие: 500, 400, дальше по 300 ₽;
+#: большие: 1000, 900, дальше по 800 ₽. Максимум — 6 в одной позиции.
+#: (sku, название, описание, варианты [(sku, ложечек, цена)], цена следующей)
+SPOONS = [
+    (
+        "box-small",
+        "Маленькие ложечки",
+        "Маленькие ложечки ручной работы.",
+        [("box-small-1", 1, 50000), ("box-small-2", 2, 90000)],
+        30000,
+    ),
+    (
+        "spoons-big",
+        "Большие ложечки",
+        "Большие ложечки ручной работы.",
+        [("spoons-big-1", 1, 100000), ("spoons-big-2", 2, 190000)],
+        80000,
+    ),
 ]
-
-#: Маленький бокс с ценами из ТЗ: 1 ложечка — 500 ₽, 2 — 900 ₽, 3 — 1200 ₽,
-#: каждая следующая — по 300 ₽, максимум 6.
-SMALL_BOX_VARIANTS = [
-    ("1 ложечка", "box-small-1", 1, 50000),
-    ("2 ложечки", "box-small-2", 2, 90000),
-    ("3 ложечки", "box-small-3", 3, 120000),
-]
-
-
-async def seed_colors(session: AsyncSession) -> int:
-    existing = set(await session.scalars(select(Color.name)))
-    added = 0
-    for position, name in enumerate(COLORS, start=1):
-        if name in existing:
-            continue
-        session.add(Color(name=name, sort_order=position, is_active=True))
-        added += 1
-    await session.flush()
-    return added
+MAX_SPOONS = 6
 
 
 async def seed_addons(session: AsyncSession) -> int:
@@ -72,7 +62,7 @@ async def seed_addons(session: AsyncSession) -> int:
         Addon(
             code=VIDEO_ADDON_CODE,
             name="Видео сборки",
-            description="Снимем, как собираем именно ваш бокс, и пришлём видео.",
+            description="Снимем, как собираем именно ваши ложечки, и пришлём видео.",
             price_kopecks=30000,
             charge_mode=AddonChargeMode.PER_BOX,
             extra_production_days=1,
@@ -86,36 +76,37 @@ async def seed_addons(session: AsyncSession) -> int:
 
 async def seed_products(session: AsyncSession) -> int:
     existing = set(await session.scalars(select(Product.sku)))
-    if "box-small" in existing:
-        return 0
-
-    product = Product(
-        sku="box-small",
-        name="Маленький бокс",
-        description="Компактный подарочный бокс с ложечками.",
-        production_days=1,
-        extra_spoon_price_kopecks=30000,
-        max_spoon_count=6,
-        sort_order=1,
-        is_active=True,
-    )
-    session.add(product)
-    await session.flush()
-
-    for position, (name, sku, spoons, price) in enumerate(SMALL_BOX_VARIANTS, start=1):
-        session.add(
-            ProductVariant(
-                product_id=product.id,
-                name=name,
-                sku=sku,
-                spoon_count=spoons,
-                price_kopecks=price,
-                sort_order=position,
-                is_active=True,
-            ),
+    added = 0
+    for position, (sku, name, description, variants, extra) in enumerate(SPOONS, start=1):
+        if sku in existing:
+            continue
+        product = Product(
+            sku=sku,
+            name=name,
+            description=description,
+            production_days=1,
+            extra_spoon_price_kopecks=extra,
+            max_spoon_count=MAX_SPOONS,
+            sort_order=position,
+            is_active=True,
         )
+        session.add(product)
+        await session.flush()
+        for order, (variant_sku, spoons, price) in enumerate(variants, start=1):
+            session.add(
+                ProductVariant(
+                    product_id=product.id,
+                    name=spoons_phrase(spoons),
+                    sku=variant_sku,
+                    spoon_count=spoons,
+                    price_kopecks=price,
+                    sort_order=order,
+                    is_active=True,
+                ),
+            )
+        added += 1
     await session.flush()
-    return 1
+    return added
 
 
 async def seed_delivery_providers(session: AsyncSession) -> int:
@@ -213,9 +204,8 @@ async def seed_demo_pickup_points(session: AsyncSession) -> int:
 async def seed_all(*, with_demo_points: bool = False) -> dict[str, int]:
     async with session_scope() as session:
         created = {
-            "цвета": await seed_colors(session),
             "услуги": await seed_addons(session),
-            "боксы": await seed_products(session),
+            "ложечки": await seed_products(session),
             "службы доставки": await seed_delivery_providers(session),
             "шаблоны сообщений": await seed_message_templates(session),
         }
@@ -236,10 +226,7 @@ def main() -> None:
     created = asyncio.run(seed_all(with_demo_points=args.demo_pickup_points))
     for name, count in created.items():
         print(f"{name}: добавлено {count}")
-    print(
-        "\nГотово. Средние и большие боксы заведите в админке: "
-        "их цены и габариты в ТЗ не зафиксированы.",
-    )
+    print("\nГотово. Цены, фото и описания ложечек правятся в админке: «Товары».")
 
 
 if __name__ == "__main__":

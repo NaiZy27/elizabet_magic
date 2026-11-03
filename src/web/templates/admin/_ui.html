@@ -72,7 +72,7 @@
       {% for day in plan.days %}
         <a class="load-day {{ 'off' if not day.is_working }} {{ 'full' if day.is_full }} {{ 'today' if loop.first }}"
            href="/admin/board/calendar#d{{ day.day.isoformat() }}"
-           title="{{ day.day | ru_day_month }}: {% if day.is_working %}{{ day.boxes }} {{ day.boxes | pluralize_ru('бокс', 'бокса', 'боксов') }}{% if day.video_boxes %}, с видео {{ day.video_boxes }}{% endif %} · занято {{ day.percent }}%{% else %}выходной{% endif %}">
+           title="{{ day.day | ru_day_month }}: {% if day.is_working %}{{ day.boxes }} {{ day.boxes | pluralize_ru('позиция', 'позиции', 'позиций') }}{% if day.video_boxes %}, с видео {{ day.video_boxes }}{% endif %} · занято {{ day.percent }}%{% else %}выходной{% endif %}">
           <b>{{ day.boxes if day.boxes else '' }}</b>
           <span class="load-col"><span style="height: {{ day.percent if day.is_working else 0 }}%; animation-delay: {{ loop.index0 * 30 }}ms"></span></span>
           <span class="wd">{{ day.day | ru_weekday }}</span>

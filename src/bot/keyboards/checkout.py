@@ -41,7 +41,7 @@ from core.text import spoons_phrase, truncate
 
 
 def products(items: Sequence[tuple[Product, int]], *, back_to_cart: bool) -> InlineKeyboardMarkup:
-    """Боксы с минимальной ценой на кнопке."""
+    """Ложечки (маленькие, большие) с минимальной ценой на кнопке."""
     builder = InlineKeyboardBuilder()
     for product, min_price in items:
         builder.button(
@@ -97,22 +97,30 @@ def video(price_kopecks: int, *, chosen: bool | None = None) -> InlineKeyboardMa
 
 
 def comment(*, has_current: bool, back_step: str) -> InlineKeyboardMarkup:
-    """Цвета и пожелания текстом. При правке бокса «пропустить» — оставить как было."""
+    """Любимые цвета и пожелания текстом. При правке «пропустить» — оставить как было."""
     builder = InlineKeyboardBuilder()
-    skip_text = "Оставить как есть" if has_current else "Без пожеланий"
+    skip_text = "Оставить как есть" if has_current else "Любые цвета"
     builder.row(back_button(back_step), skip_button("comment", skip_text))
     return builder.as_markup()
 
 
+def avoid_colors(*, has_current: bool) -> InlineKeyboardMarkup:
+    """Нежелательные цвета текстом. При правке «пропустить» — оставить как было."""
+    builder = InlineKeyboardBuilder()
+    skip_text = "Оставить как есть" if has_current else "Таких нет"
+    builder.row(back_button("comment"), skip_button("avoid", skip_text))
+    return builder.as_markup()
+
+
 def cart(items: Sequence[OrderItem], *, can_add: bool) -> InlineKeyboardMarkup:
-    """Корзина: править и убирать боксы, добавить ещё один или идти дальше."""
+    """Корзина: править и убирать позиции, добавить ещё ложечки или идти дальше."""
     builder = InlineKeyboardBuilder()
     many = len(items) > 1
     for index, item in enumerate(items, start=1):
         label = f" {index}" if many else ""
         builder.row(
             InlineKeyboardButton(
-                text=f"✏️ Бокс{label}",
+                text=f"✏️ Ложечки{label}",
                 callback_data=CartCB(action="edit", item_id=item.id).pack(),
             ),
             InlineKeyboardButton(
@@ -121,7 +129,7 @@ def cart(items: Sequence[OrderItem], *, can_add: bool) -> InlineKeyboardMarkup:
             ),
         )
     if can_add:
-        builder.row(button("➕ Ещё бокс", CartCB(action="add").pack()))
+        builder.row(button("➕ Ещё ложечки", CartCB(action="add").pack()))
     builder.row(button("Далее: доставка →", CartCB(action="next").pack(), style=PRIMARY))
     builder.row(cancel_button())
     return builder.as_markup()
@@ -242,7 +250,7 @@ def summary() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(button("💳 Перейти к оплате", StepCB(step="pay").pack(), style=SUCCESS))
     builder.row(
-        button("✏️ Боксы", StepCB(step="cart").pack()),
+        button("✏️ Ложечки", StepCB(step="cart").pack()),
         button("✏️ Доставка", StepCB(step="pickup_search").pack()),
         button("✏️ Получатель", StepCB(step="recipient").pack()),
     )

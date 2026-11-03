@@ -79,11 +79,11 @@
     </div>
     <div class="form-grid">
       <div class="form-row">
-        <label for="plain_boxes_per_day">Боксов в день без видео</label>
+        <label for="plain_boxes_per_day">Позиций в день без видео</label>
         <input id="plain_boxes_per_day" name="plain_boxes_per_day" type="number" min="1" max="50" value="{{ calendar.plain_boxes_per_day }}">
       </div>
       <div class="form-row">
-        <label for="video_boxes_per_day">Боксов в день с видео</label>
+        <label for="video_boxes_per_day">Позиций в день с видео</label>
         <input id="video_boxes_per_day" name="video_boxes_per_day" type="number" min="1" max="50" value="{{ calendar.video_boxes_per_day }}">
       </div>
     </div>
@@ -111,7 +111,7 @@
         <input id="draft_ttl_days" name="draft_ttl_days" type="number" min="1" max="365" value="{{ rules.draft_ttl_days }}">
       </div>
       <div class="form-row">
-        <label for="max_boxes_per_order">Боксов в заказе, макс.</label>
+        <label for="max_boxes_per_order">Позиций в заказе, макс.</label>
         <input id="max_boxes_per_order" name="max_boxes_per_order" type="number" min="1" max="50" value="{{ rules.max_boxes_per_order }}">
       </div>
       <div class="form-row">
@@ -211,7 +211,7 @@
       {% endfor %}
       <div class="list-row" style="padding:16px">
         <span class="label">Новый вопрос</span>
-        <input name="questions" placeholder="Сколько собирается бокс?" style="margin-bottom:8px">
+        <input name="questions" placeholder="Сколько делаются ложечки?" style="margin-bottom:8px">
         <textarea name="answers" placeholder="Ответ"></textarea>
       </div>
     </div>

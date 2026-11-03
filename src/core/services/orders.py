@@ -171,8 +171,9 @@ class BoxRequest:
     variant_id: int
     spoon_count: int
     addon_ids: tuple[int, ...] = ()
-    favorite_color_ids: tuple[int, ...] = ()
-    avoid_color_ids: tuple[int, ...] = ()
+    #: Каких цветов не должно быть — текстом, как написал клиент.
+    avoid_colors: str | None = None
+    #: Любимые цвета и пожелания — текстом.
     comment: str | None = None
 
 
@@ -203,7 +204,7 @@ async def save_box(
         rules = await settings.get_order_rules(session)
         if order.box_count >= rules.max_boxes_per_order:
             raise ValidationError(
-                f"В одном заказе может быть не больше {rules.max_boxes_per_order} боксов",
+                f"В одном заказе может быть не больше {rules.max_boxes_per_order} позиций",
             )
         item = OrderItem(quantity=1, unit_price_kopecks=0, name_snapshot="", spoon_count=1)
         item.addons = []
@@ -214,8 +215,11 @@ async def save_box(
     # Выбор записываем в позицию, а цены и названия проставит пересчёт.
     item.variant_id = box.variant_id
     item.spoon_count = box.spoon_count
-    item.favorite_colors = await catalog.color_names(session, box.favorite_color_ids)
-    item.avoid_colors = await catalog.color_names(session, box.avoid_color_ids)
+    # Цвета — словами клиента; списка-палитры больше нет. favorite_colors остаётся
+    # только у старых заказов: любимые цвета теперь пишутся вместе с пожеланиями.
+    item.favorite_colors = []
+    avoid = (box.avoid_colors or "").strip()
+    item.avoid_colors = [avoid] if avoid else []
     item.comment = (box.comment or "").strip() or None
 
     await _recalculate(session, order, item_addon_ids={id(item): box.addon_ids})
@@ -537,7 +541,7 @@ async def _last_pickup_point(session: AsyncSession, customer: Customer) -> Picku
 def _find_item(order: Order, item_id: int) -> OrderItem:
     item = next((item for item in order.items if item.id == item_id), None)
     if item is None:
-        raise NotFoundError("Этого бокса уже нет в заказе")
+        raise NotFoundError("Этих ложечек уже нет в заказе")
     return item
 
 
@@ -929,7 +933,7 @@ def _ensure_draft(order: Order) -> None:
 def _check_ready_to_submit(order: Order) -> None:
     """Всё ли заполнено, чтобы принять заказ."""
     if not order.items:
-        raise ValidationError("Добавьте хотя бы один бокс")
+        raise ValidationError("Добавьте в заказ ложечки")
     snapshot = order.pickup_snapshot or {}
     if not snapshot or (order.pickup_point_id is None and not snapshot.get("manual")):
         raise ValidationError("Выберите пункт выдачи")

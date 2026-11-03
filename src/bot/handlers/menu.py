@@ -25,6 +25,7 @@ from bot.keyboards.common import (
     BTN_CONTACTS,
     BTN_DELIVERY,
     BTN_FAQ,
+    BTN_ORDER,
     BTN_PRICES,
     back_to_menu,
     main_menu,
@@ -37,8 +38,6 @@ from core.enums import AddonChargeMode
 from core.models import Customer, Order
 from core.money import format_rubles
 from core.services import catalog, delivery, settings
-from core.services.catalog import active_variants
-from core.text import spoons_phrase
 
 logger = logging.getLogger(__name__)
 
@@ -114,18 +113,13 @@ async def show_prices(event: Event, session: AsyncSession) -> None:
 
     blocks: list[str] = ["<b>💰 Цены</b>"]
     for product in products:
-        lines = [f"\n<b>{escape(product.name)}</b>"]
-        for variant in active_variants(product.variants):
-            lines.append(
-                f"{spoons_phrase(variant.spoon_count)} — {format_rubles(variant.price_kopecks)}"
-            )
-        if product.allows_extra_spoons and product.extra_spoon_price_kopecks is not None:
-            lines.append(f"+1 ложечка — {format_rubles(product.extra_spoon_price_kopecks)}")
-        blocks.append("\n".join(lines))
+        blocks.append(
+            f"\n<b>{escape(product.name)}</b>\n{catalog.spoon_prices_text(product)}",
+        )
 
     addons = await catalog.list_active_addons(session)
     for addon in addons:
-        suffix = "за бокс" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
+        suffix = "за позицию" if addon.charge_mode == AddonChargeMode.PER_BOX else "за заказ"
         blocks.append(f"\n{escape(addon.name)} — +{format_rubles(addon.price_kopecks)} {suffix}")
 
     providers = await delivery.enabled_providers(session)
@@ -138,7 +132,7 @@ async def show_prices(event: Event, session: AsyncSession) -> None:
 
 def _order_or_back():
     builder = InlineKeyboardBuilder()
-    builder.row(menu_button("🛍 Заказать бокс", "order", style="primary"))
+    builder.row(menu_button(BTN_ORDER, "order", style="primary"))
     builder.row(menu_button("← Меню", "home", style="link"))
     return builder.as_markup()
 

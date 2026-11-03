@@ -44,7 +44,7 @@ from core.errors import ExternalServiceError, ValidationError
 from core.models import Order, Payment
 
 #: Описание платежа на странице Робокассы (до 100 символов).
-PAYMENT_DESCRIPTION = "Подарочные боксы Elizabet Magic"
+PAYMENT_DESCRIPTION = "Ложечки Elizabet Magic"
 
 #: Название позиции в чеке — не длиннее 128 символов.
 _RECEIPT_NAME_LIMIT = 128

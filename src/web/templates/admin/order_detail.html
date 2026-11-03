@@ -23,7 +23,7 @@
   <div class="stack">
     <section class="card">
       <div class="card-head">
-        <h2>Состав · {{ order.box_count }} {{ order.box_count | pluralize_ru('бокс', 'бокса', 'боксов') }}</h2>
+        <h2>Состав · {{ order.box_count }} {{ order.box_count | pluralize_ru('позиция', 'позиции', 'позиций') }}</h2>
       </div>
       <div class="video-flag {{ 'yes' if order.video_box_count else 'no' }}">
         {% if order.video_box_count %}Снять видео: {{ order.video_box_count }} из {{ order.box_count }}{% else %}Без видео{% endif %}
@@ -36,9 +36,9 @@
           </div>
           <div class="kv"><span>Ложечек</span><span>{{ item.spoon_count }}</span></div>
           {% if item.has_video %}<div class="kv"><span>Видео</span><span><span class="status queued">Снять видео</span></span></div>{% endif %}
-          <div class="kv"><span>Любимые цвета</span><span>{{ item.favorite_colors | join(', ') or '—' }}</span></div>
-          <div class="kv"><span>Не использовать</span><span>{{ item.avoid_colors | join(', ') or '—' }}</span></div>
-          <div class="kv"><span>Пожелания</span><span style="white-space:pre-line">{{ item.comment or '—' }}</span></div>
+          {% if item.favorite_colors %}<div class="kv"><span>Любимые цвета</span><span>{{ item.favorite_colors | join(', ') }}</span></div>{% endif %}
+          <div class="kv"><span>Цвета и пожелания</span><span style="white-space:pre-line">{{ item.comment or '—' }}</span></div>
+          <div class="kv"><span>Не использовать</span><span style="white-space:pre-line">{{ item.avoid_colors | join(', ') or '—' }}</span></div>
         </div>
       {% endfor %}
       {% for addon in order.order_addons %}
@@ -66,7 +66,7 @@
     {% if owner %}
     <section class="card">
       <h2>Деньги</h2>
-      <div class="kv"><span>Боксы и услуги</span><span>{{ order.subtotal_kopecks | rubles }}</span></div>
+      <div class="kv"><span>Ложечки и услуги</span><span>{{ order.subtotal_kopecks | rubles }}</span></div>
       <div class="kv"><span>Доставка</span><span>{{ order.delivery_kopecks | rubles }}</span></div>
       <div class="kv"><span>Оплата</span>
         <span>

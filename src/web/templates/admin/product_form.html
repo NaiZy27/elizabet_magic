@@ -1,6 +1,6 @@
 {% extends "admin/base.html" %}
 {% from "admin/_ui.html" import icon %}
-{% block title %}{{ product.name if product else 'Новый бокс' }}{% endblock %}
+{% block title %}{{ product.name if product else 'Новый товар' }}{% endblock %}
 
 {% macro variant_fields(variant) %}
   <div class="form-grid">
@@ -25,7 +25,7 @@
 <a class="back" href="/admin/catalog">{{ icon('back') }}Товары</a>
 <div class="page-head">
   <div>
-    <h1>{{ product.name if product else 'Новый бокс' }}</h1>
+    <h1>{{ product.name if product else 'Новый товар' }}</h1>
     {% if not product %}<div class="sub">Сначала основное — фото и варианты добавите следом.</div>{% endif %}
   </div>
 </div>
@@ -84,7 +84,7 @@
 
         <div class="form-actions">
           <label class="switch"><input type="checkbox" name="is_active" value="true" {{ 'checked' if not product or product.is_active }}> Показывать в боте</label>
-          <button type="submit" style="margin-left:auto">{{ 'Сохранить' if product else 'Создать бокс' }}</button>
+          <button type="submit" style="margin-left:auto">{{ 'Сохранить' if product else 'Создать товар' }}</button>
         </div>
       </form>
     </section>
@@ -96,7 +96,7 @@
         <span class="muted">{{ all_variants | length }}</span>
       </div>
       {% if not all_variants %}
-        <p class="note" style="margin-top:0">Без вариантов бокс не появится в боте — добавьте хотя бы один.</p>
+        <p class="note" style="margin-top:0">Без вариантов товар не появится в боте — добавьте хотя бы один.</p>
       {% endif %}
       <div class="list-rows">
         {% for variant in all_variants %}
@@ -139,9 +139,9 @@
     <section class="card">
       <h2>Фото</h2>
       {% if product.photo_file_id %}
-        <div class="photo-preview" style="background-image: url('/admin/media/product/{{ product.id }}')" role="img" aria-label="Фото бокса"></div>
+        <div class="photo-preview" style="background-image: url('/admin/media/product/{{ product.id }}')" role="img" aria-label="Фото товара"></div>
       {% else %}
-        <p class="muted" style="margin-top:0"><span class="status off">Фото нет — клиент увидит бокс без картинки</span></p>
+        <p class="muted" style="margin-top:0"><span class="status off">Фото нет — клиент увидит товар без картинки</span></p>
       {% endif %}
       <form method="post" action="/admin/catalog/products/{{ product.id }}/photo" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -154,12 +154,12 @@
 
     <section class="card danger-zone">
       <div>
-        <b>Удалить бокс</b>
+        <b>Удалить товар</b>
         <div class="muted small">Пропадёт из каталога и бота. Старые заказы останутся.</div>
       </div>
       <form method="post" action="/admin/catalog/products/{{ product.id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="danger small" type="submit" data-confirm="Удалить бокс «{{ product.name }}»? Он пропадёт из каталога и бота.">Удалить</button>
+        <button class="danger small" type="submit" data-confirm="Удалить «{{ product.name }}»? Он пропадёт из каталога и бота.">Удалить</button>
       </form>
     </section>
   </div>

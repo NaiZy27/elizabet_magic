@@ -107,7 +107,7 @@ async def check(session: AsyncSession, *, today: dt.date | None = None) -> Intak
         message = (
             "Заказы на ближайшую дату закончились. "
             f"Ближайшая доступная дата — {format_date(next_date)}. "
-            "Возвращайтесь к этому дню — будем рады собрать для вас бокс 💗"
+            "Возвращайтесь к этому дню — будем рады собрать для вас ложечки 💗"
         )
     return IntakeState(is_open=False, message=message, next_date=next_date)
 

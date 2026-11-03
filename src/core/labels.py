@@ -86,7 +86,7 @@ DELIVERY_PROVIDER_LABELS: dict[DeliveryProviderCode, str] = {
 }
 
 ADDON_CHARGE_MODE_LABELS: dict[AddonChargeMode, str] = {
-    AddonChargeMode.PER_BOX: "За каждый бокс",
+    AddonChargeMode.PER_BOX: "За каждую позицию",
     AddonChargeMode.PER_ORDER: "Один раз на заказ",
 }
 

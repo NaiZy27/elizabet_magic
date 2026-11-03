@@ -41,8 +41,8 @@ PLACEHOLDERS: dict[str, str] = {
     "customer_name": "Имя клиента",
     "email": "Email, на который уходит чек",
     "items": "Состав заказа списком",
-    "box_count": "Сколько боксов в заказе",
-    "subtotal": "Стоимость боксов и услуг",
+    "box_count": "Сколько позиций в заказе",
+    "subtotal": "Стоимость ложечек и услуг",
     "delivery": "Стоимость доставки",
     "total": "Итоговая сумма",
     "has_video": "Заказано ли видео сборки (да/нет)",
@@ -79,7 +79,7 @@ DEFAULT_TEMPLATES: dict[MessageTemplateKey, str] = {
         "Чек по заказу {{ order_number }} сформирован: {{ receipt_url }}"
     ),
     MessageTemplateKey.STATUS_ASSEMBLING: (
-        "Собираем ваш бокс 🎀\nЗаказ {{ order_number }} уже в работе."
+        "Собираем ваши ложечки 🎀\nЗаказ {{ order_number }} уже в работе."
     ),
     MessageTemplateKey.STATUS_READY: (
         "Заказ {{ order_number }} готов! Отвезём его в службу доставки в ближайшее время."
@@ -92,12 +92,12 @@ DEFAULT_TEMPLATES: dict[MessageTemplateKey, str] = {
         "Заказ {{ order_number }} в пути.\nНомер для отслеживания: {{ track }}"
     ),
     MessageTemplateKey.ARRIVED_AT_PICKUP: (
-        "Ваш бокс приехал в пункт выдачи 🎁\n"
+        "Ваш заказ приехал в пункт выдачи 🎁\n"
         "{{ pickup_address }}\n"
         "Режим работы: {{ pickup_working_hours }}"
     ),
     MessageTemplateKey.STATUS_COMPLETED: (
-        "Спасибо, что выбрали нас 💗 Очень надеемся, что бокс понравился!"
+        "Спасибо, что выбрали нас 💗 Очень надеемся, что ложечки понравились!"
     ),
     MessageTemplateKey.ORDER_CANCELLED: (
         "Заказ {{ order_number }} отменён.\n"
@@ -120,7 +120,7 @@ def sample_context() -> dict[str, Any]:
         "order_number": "EM-1025",
         "customer_name": "Анна",
         "email": "anna@mail.ru",
-        "items": ("1. Маленький бокс — 3 ложечки + видео сборки\n2. Маленький бокс — 2 ложечки"),
+        "items": ("1. Маленькие ложечки — 3 шт. + видео сборки\n2. Большие ложечки — 2 шт."),
         "box_count": 2,
         "subtotal": format_rubles(240000),
         "delivery": format_rubles(30000),

@@ -4,7 +4,7 @@
 """
 
 from core.models.base import Base
-from core.models.catalog import Addon, Color, Product, ProductVariant
+from core.models.catalog import Addon, Product, ProductVariant
 from core.models.customers import Customer
 from core.models.delivery import DeliveryProvider, PickupPoint, Shipment
 from core.models.orders import (
@@ -24,7 +24,6 @@ __all__ = [
     "Addon",
     "AdminUser",
     "Base",
-    "Color",
     "Customer",
     "DeliveryProvider",
     "MessageTemplate",

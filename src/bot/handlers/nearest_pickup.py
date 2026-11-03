@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot import ui
 from bot.callbacks import NearestPointCB
 from bot.emoji import provider_button, provider_icon
-from bot.keyboards.common import main_menu, menu_button
+from bot.keyboards.common import BTN_ORDER, main_menu, menu_button
 from core.errors import NotFoundError
 from core.labels import delivery_provider_label
 from core.models import PickupPoint
@@ -93,7 +93,7 @@ def _points_keyboard(found: list[tuple[PickupPoint, float]]) -> InlineKeyboardMa
                 NearestPointCB(point_id=point.id).pack(),
             ),
         )
-    builder.row(menu_button("🛍 Заказать бокс", "order", style="primary"))
+    builder.row(menu_button(BTN_ORDER, "order", style="primary"))
     builder.row(menu_button("← Меню", "home", style="link"))
     return builder.as_markup()
 
