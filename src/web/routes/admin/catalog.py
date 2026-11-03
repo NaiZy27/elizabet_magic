@@ -43,6 +43,12 @@ async def catalog_page(request: Request, session: DbSession, admin: CurrentOwner
         "admin/catalog.html",
         {
             "products": products,
+            # Та же лесенка цен, что видит клиент в боте: «1 ложечка — 500 ₽, 2-я — 400 ₽…».
+            "price_texts": {
+                product.id: catalog_service.spoon_prices_text(product)
+                for product in products
+                if catalog_service.active_variants(product.variants)
+            },
             "notice": NOTICES.get(request.query_params.get("done", "")),
             "sold_30d": await analytics.product_sales(session, days=30),
             "addons": list(addons),

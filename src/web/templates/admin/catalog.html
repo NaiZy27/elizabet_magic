@@ -36,6 +36,7 @@
         <div class="p-price">
           {% if prices %}{% if prices | length > 1 and prices | min != prices | max %}от {% endif %}{{ prices | min | rubles }}{% else %}<span class="muted" style="font-size:16px">без цены</span>{% endif %}
         </div>
+        {% if price_texts.get(product.id) %}<div class="p-ladder muted small">{{ price_texts[product.id] }}</div>{% endif %}
         <div class="p-sold">
           <div class="p-meta"><span>Продано за 30 дн.</span><b style="color:var(--ink)">{{ sold }} шт</b></div>
           <div class="meter"><span style="width: {{ pct(sold, best_seller) }}%"></span></div>
